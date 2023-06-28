@@ -1,0 +1,6 @@
+packages:
+  "."
+package json-spec-openapi
+  ghc-options:
+    -Werror
+
