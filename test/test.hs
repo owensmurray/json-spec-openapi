@@ -11,16 +11,18 @@
 module Main (main) where
 
 import Control.Lens (At(at), (&), set)
-import Data.Aeson (FromJSON, ToJSON, encode)
+import Data.Aeson (FromJSON, ToJSON, encode, toJSON)
 import Data.JsonSpec (Field(Field), HasJsonDecodingSpec(DecodingSpec,
   fromJSONStructure), HasJsonEncodingSpec(EncodingSpec, toJSONStructure),
   SpecJSON(SpecJSON), Specification(JsonArray, JsonBool, JsonDateTime,
-  JsonNum, JsonObject, JsonString))
+  JsonEither, JsonNum, JsonObject, JsonString, JsonTag))
 import Data.JsonSpec.OpenApi (EncodingSchema, toOpenApiSchema)
 import Data.OpenApi (ToSchema)
 import Data.Proxy (Proxy(Proxy))
 import Data.Text (Text)
 import Data.Time (UTCTime)
+import Prelude (Applicative(pure), Bool(False), Maybe(Just),
+  Monoid(mempty), ($), Eq, IO, Show)
 import Test.Hspec (describe, hspec, it, shouldBe)
 import qualified Data.OpenApi as OA
 
@@ -39,6 +41,64 @@ main =
           expected = stringSchema
         in
           actual `shouldBe` expected
+
+      it "sum" $
+        let
+          actual :: OA.Schema
+          actual =
+            toOpenApiSchema (Proxy @(
+              JsonEither
+                (
+                  JsonObject
+                    '[ '("tag", JsonTag "a")
+                     , '("content", JsonString)
+                     ]
+                )
+                (
+                  JsonObject
+                    '[ '("tag", JsonTag "b")
+                     , '("content", JsonString)
+                     ]
+                )
+            ))
+
+          expected :: OA.Schema
+          expected =
+            mempty
+              & set OA.oneOf (Just
+                [ OA.Inline $
+                    mempty
+                      & set OA.type_ (Just OA.OpenApiObject)
+                      & set OA.properties (
+                          mempty
+                            & set (at "tag") (Just (OA.Inline (
+                                mempty & set OA.enum_ (Just [toJSON ("a" :: Text)])
+                              )))
+                            & set (at "content") (Just (OA.Inline stringSchema))
+                        )
+                      & set OA.required ["tag", "content"]
+                      & set
+                          OA.additionalProperties
+                          (Just (OA.AdditionalPropertiesAllowed False))
+                , OA.Inline $
+                    mempty
+                      & set OA.type_ (Just OA.OpenApiObject)
+                      & set OA.properties (
+                          mempty
+                            & set (at "tag") (Just (OA.Inline (
+                                mempty & set OA.enum_ (Just [toJSON ("b" :: Text)])
+                              )))
+                            & set (at "content") (Just (OA.Inline stringSchema))
+                        )
+                      & set OA.required ["tag", "content"]
+                      & set
+                          OA.additionalProperties
+                          (Just (OA.AdditionalPropertiesAllowed False))
+                ]
+              )
+        in
+          actual `shouldBe` expected
+
 
       it "object" $
         let
@@ -129,7 +189,7 @@ main =
       it "date-time" $
         let
           actual :: OA.Schema
-          actual = 
+          actual =
             toOpenApiSchema (Proxy @JsonDateTime)
 
           expected :: OA.Schema

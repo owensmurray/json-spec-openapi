@@ -98,21 +98,25 @@ module Data.JsonSpec.OpenApi (
 
 
 import Control.Lens (At(at), (&), over, set)
+import Data.Aeson (ToJSON(toJSON))
 import Data.JsonSpec (HasJsonDecodingSpec(DecodingSpec),
   HasJsonEncodingSpec(EncodingSpec), Specification(JsonArray, JsonBool,
-  JsonDateTime, JsonInt, JsonNum, JsonObject, JsonString))
+  JsonDateTime, JsonEither, JsonInt, JsonNum, JsonObject, JsonString,
+  JsonTag))
 import Data.OpenApi (AdditionalProperties(AdditionalPropertiesAllowed),
-  HasAdditionalProperties(additionalProperties),
-  HasFormat(format), HasItems(items), HasProperties(properties),
-  HasRequired(required), HasType(type_), NamedSchema(NamedSchema),
-  OpenApiItems(OpenApiItemsObject), OpenApiType(OpenApiArray,
-  OpenApiBoolean, OpenApiInteger, OpenApiNumber, OpenApiObject,
-  OpenApiString), Referenced(Inline), ToSchema(declareNamedSchema),
-  Schema)
+  HasAdditionalProperties(additionalProperties), HasEnum(enum_),
+  HasFormat(format), HasItems(items), HasOneOf(oneOf),
+  HasProperties(properties), HasRequired(required), HasType(type_),
+  NamedSchema(NamedSchema), OpenApiItems(OpenApiItemsObject),
+  OpenApiType(OpenApiArray, OpenApiBoolean, OpenApiInteger,
+  OpenApiNumber, OpenApiObject, OpenApiString), Referenced(Inline),
+  ToSchema(declareNamedSchema), Schema)
 import Data.String (IsString(fromString))
 import Data.Text (Text)
 import Data.Typeable (Proxy(Proxy), Typeable)
 import GHC.TypeLits (KnownSymbol, symbolVal)
+import Prelude (Applicative(pure), Bool(False), Maybe(Just, Nothing),
+  Monoid(mempty), ($))
 
 
 {-|
@@ -146,9 +150,21 @@ class Internal (spec :: Specification) where
 
   -}
   internal :: Proxy spec -> Schema
+instance (KnownSymbol tag) => Internal ('JsonTag tag) where
+  internal _ =
+    mempty & set enum_ (Just [toJSON (sym @tag :: Text)])
+
 instance Internal 'JsonString where
   internal _ =
     mempty & set type_ (Just OpenApiString)
+instance (Internal left, Internal right) => Internal ('JsonEither left right) where
+  internal _ =
+    mempty
+      & set oneOf (Just
+          [ Inline (internal (Proxy @left))
+          , Inline (internal (Proxy @right))
+          ]
+      )
 instance Internal 'JsonNum where
   internal _ =
     mempty & set type_ (Just OpenApiNumber)
@@ -213,7 +229,7 @@ instance (Typeable a, Internal (EncodingSpec a)) => ToSchema (EncodingSchema a) 
 {-|
   Helper for defining `ToSchema` instances based on `HasJsonDecodingSpec`
   using @deriving via@.
-  
+
   Example:
 
   > data MyType = ...
