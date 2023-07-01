@@ -4,8 +4,8 @@ version:             0.1.0.0
 synopsis:            json-spec-openapi
 description:
   This package provides a way to produce
-  [`openapi3`](https://hackage.haskell.org/package/openapi3) documentation from a
-  [`json-spec`](https://hackage.haskell.org/package/json-spec-0.1.0.0)
+  [openapi3](https://hackage.haskell.org/package/openapi3) documentation from a
+  [json-spec](https://hackage.haskell.org/package/json-spec-0.1.0.0)
   specification.
 
   = Example
