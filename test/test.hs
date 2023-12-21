@@ -12,19 +12,20 @@
 module Main (main) where
 
 import Control.Lens (At(at), (&), set)
-import Data.Aeson (FromJSON, ToJSON, encode, toJSON)
+import Data.Aeson (ToJSON(toJSON), FromJSON, encode)
 import Data.JsonSpec (Field(Field), HasJsonDecodingSpec(DecodingSpec,
   fromJSONStructure), HasJsonEncodingSpec(EncodingSpec, toJSONStructure),
   SpecJSON(SpecJSON), Specification(JsonArray, JsonBool, JsonDateTime,
-  JsonEither, JsonNum, JsonObject, JsonString, JsonTag))
+  JsonEither, JsonLet, JsonNum, JsonObject, JsonRef, JsonString, JsonTag))
 import Data.JsonSpec.OpenApi (EncodingSchema, toOpenApiSchema)
-import Data.OpenApi (ToSchema)
+import Data.OpenApi (Definitions, ToSchema)
 import Data.Proxy (Proxy(Proxy))
 import Data.Text (Text)
 import Data.Time (UTCTime)
 import Prelude (Applicative(pure), Bool(False), Maybe(Just),
   Monoid(mempty), ($), Eq, IO, Show)
 import Test.Hspec (describe, hspec, it, shouldBe)
+import qualified Data.HashMap.Strict.InsOrd as HMI
 import qualified Data.OpenApi as OA
 
 
@@ -34,18 +35,17 @@ main =
     describe "toOpenApiSchema" $ do
       it "string" $
         let
-          actual :: OA.Schema
-          actual =
-            toOpenApiSchema (Proxy @JsonString)
+          actual :: (Definitions OA.Schema, OA.Schema)
+          actual = toOpenApiSchema (Proxy @JsonString)
 
-          expected :: OA.Schema
-          expected = stringSchema
+          expected :: (Definitions OA.Schema, OA.Schema)
+          expected = (mempty, stringSchema)
         in
           actual `shouldBe` expected
 
       it "sum" $
         let
-          actual :: OA.Schema
+          actual :: (Definitions OA.Schema, OA.Schema)
           actual =
             toOpenApiSchema (Proxy @(
               JsonEither
@@ -63,47 +63,48 @@ main =
                 )
             ))
 
-          expected :: OA.Schema
+          expected :: (Definitions OA.Schema, OA.Schema)
           expected =
-            mempty
-              & set OA.oneOf (Just
-                [ OA.Inline $
-                    mempty
-                      & set OA.type_ (Just OA.OpenApiObject)
-                      & set OA.properties (
-                          mempty
-                            & set (at "tag") (Just (OA.Inline (
-                                mempty & set OA.enum_ (Just [toJSON ("a" :: Text)])
-                              )))
-                            & set (at "content") (Just (OA.Inline stringSchema))
-                        )
-                      & set OA.required ["tag", "content"]
-                      & set
-                          OA.additionalProperties
-                          (Just (OA.AdditionalPropertiesAllowed False))
-                , OA.Inline $
-                    mempty
-                      & set OA.type_ (Just OA.OpenApiObject)
-                      & set OA.properties (
-                          mempty
-                            & set (at "tag") (Just (OA.Inline (
-                                mempty & set OA.enum_ (Just [toJSON ("b" :: Text)])
-                              )))
-                            & set (at "content") (Just (OA.Inline stringSchema))
-                        )
-                      & set OA.required ["tag", "content"]
-                      & set
-                          OA.additionalProperties
-                          (Just (OA.AdditionalPropertiesAllowed False))
-                ]
-              )
+            ( mempty
+            , mempty
+                & set OA.oneOf (Just
+                  [ OA.Inline $
+                      mempty
+                        & set OA.type_ (Just OA.OpenApiObject)
+                        & set OA.properties (
+                            mempty
+                              & set (at "tag") (Just (OA.Inline (
+                                  mempty & set OA.enum_ (Just [toJSON ("a" :: Text)])
+                                )))
+                              & set (at "content") (Just (OA.Inline stringSchema))
+                          )
+                        & set OA.required ["tag", "content"]
+                        & set
+                            OA.additionalProperties
+                            (Just (OA.AdditionalPropertiesAllowed False))
+                  , OA.Inline $
+                      mempty
+                        & set OA.type_ (Just OA.OpenApiObject)
+                        & set OA.properties (
+                            mempty
+                              & set (at "tag") (Just (OA.Inline (
+                                  mempty & set OA.enum_ (Just [toJSON ("b" :: Text)])
+                                )))
+                              & set (at "content") (Just (OA.Inline stringSchema))
+                          )
+                        & set OA.required ["tag", "content"]
+                        & set
+                            OA.additionalProperties
+                            (Just (OA.AdditionalPropertiesAllowed False))
+                  ]
+                )
+            )
         in
           actual `shouldBe` expected
 
-
       it "object" $
         let
-          actual :: OA.Schema
+          actual :: (Definitions OA.Schema, OA.Schema)
           actual =
             toOpenApiSchema (Proxy @(
               JsonObject '[
@@ -112,36 +113,37 @@ main =
               ]
             ))
 
-          expected :: OA.Schema
+          expected :: (Definitions OA.Schema, OA.Schema)
           expected =
-            mempty
-              & set OA.type_ (Just OA.OpenApiObject)
-              & set OA.properties (
-                  mempty
-                    & set (at "Foo") (Just (OA.Inline stringSchema))
-                    & set (at "Bar") (Just (OA.Inline stringSchema))
-                )
-              & set OA.required ["Foo", "Bar"]
-              & set
-                  OA.additionalProperties
-                  (Just (OA.AdditionalPropertiesAllowed False))
+            ( mempty
+            , mempty
+                & set OA.type_ (Just OA.OpenApiObject)
+                & set OA.properties (
+                    mempty
+                      & set (at "Foo") (Just (OA.Inline stringSchema))
+                      & set (at "Bar") (Just (OA.Inline stringSchema))
+                  )
+                & set OA.required ["Foo", "Bar"]
+                & set
+                    OA.additionalProperties
+                    (Just (OA.AdditionalPropertiesAllowed False))
+            )
         in
           actual `shouldBe` expected
 
       it "num" $
         let
-          actual :: OA.Schema
-          actual =
-            toOpenApiSchema (Proxy @JsonNum)
+          actual :: (Definitions OA.Schema, OA.Schema)
+          actual = toOpenApiSchema (Proxy @JsonNum)
 
-          expected :: OA.Schema
-          expected = numSchema
+          expected :: (Definitions OA.Schema, OA.Schema)
+          expected = (mempty, numSchema)
         in
           actual `shouldBe` expected
 
       it "complex array" $
         let
-          actual :: OA.Schema
+          actual :: (Definitions OA.Schema, OA.Schema)
           actual =
             toOpenApiSchema (Proxy @(
               JsonArray (
@@ -152,53 +154,140 @@ main =
               )
             ))
 
-          expected :: OA.Schema
+          expected :: (Definitions OA.Schema, OA.Schema)
           expected =
-            let
-              elementSchema :: OA.Schema
-              elementSchema =
+            ( mempty
+            , let
+                elementSchema :: OA.Schema
+                elementSchema =
+                  mempty
+                    & set OA.type_ (Just OA.OpenApiObject)
+                    & set OA.properties (
+                        mempty
+                          & set (at "Foo") (Just (OA.Inline stringSchema))
+                          & set (at "Bar") (Just (OA.Inline stringSchema))
+                      )
+                    & set OA.required ["Foo", "Bar"]
+                    & set
+                        OA.additionalProperties
+                        (Just (OA.AdditionalPropertiesAllowed False))
+              in
                 mempty
-                  & set OA.type_ (Just OA.OpenApiObject)
-                  & set OA.properties (
-                      mempty
-                        & set (at "Foo") (Just (OA.Inline stringSchema))
-                        & set (at "Bar") (Just (OA.Inline stringSchema))
-                    )
-                  & set OA.required ["Foo", "Bar"]
-                  & set
-                      OA.additionalProperties
-                      (Just (OA.AdditionalPropertiesAllowed False))
-            in
-              mempty
-                & set OA.type_ (Just OA.OpenApiArray)
-                & set OA.items (Just (OA.OpenApiItemsObject (OA.Inline elementSchema)))
+                  & set OA.type_ (Just OA.OpenApiArray)
+                  & set OA.items (Just (OA.OpenApiItemsObject (OA.Inline elementSchema)))
+            )
 
         in
           actual `shouldBe` expected
 
       it "bool" $
         let
-          actual :: OA.Schema
+          actual :: (Definitions OA.Schema, OA.Schema)
           actual =
             toOpenApiSchema (Proxy @JsonBool)
 
-          expected :: OA.Schema
-          expected = boolSchema
+          expected :: (Definitions OA.Schema, OA.Schema)
+          expected = (mempty, boolSchema)
         in
           actual `shouldBe` expected
 
       it "date-time" $
         let
-          actual :: OA.Schema
+          actual :: (Definitions OA.Schema, OA.Schema)
           actual =
             toOpenApiSchema (Proxy @JsonDateTime)
 
-          expected :: OA.Schema
+          expected :: (Definitions OA.Schema, OA.Schema)
           expected =
-            stringSchema
-            & set OA.format (Just "date-time")
+            ( mempty
+            , stringSchema & set OA.format (Just "date-time")
+            )
         in
           actual `shouldBe` expected
+
+      it "let expression" $
+        let
+          actual :: (Definitions OA.Schema, OA.Schema)
+          actual =
+            toOpenApiSchema (Proxy @(
+              JsonLet '[
+                '("thing", JsonString)
+              ]
+              (
+                JsonObject '[
+                  '("foo", JsonRef "thing")
+                ]
+              )
+            ))
+
+          expected :: (Definitions OA.Schema, OA.Schema)
+          expected =
+            ( HMI.singleton "thing" stringSchema
+            , mempty
+                & set OA.type_ (Just OA.OpenApiObject)
+                & set OA.properties (
+                    mempty
+                      & set (at "foo") (Just (OA.Ref (OA.Reference "thing")))
+                  )
+                & set OA.required ["foo"]
+                & set
+                    OA.additionalProperties
+                    (Just (OA.AdditionalPropertiesAllowed False))
+            )
+        in
+          actual `shouldBe` expected
+
+      it "top level reference" $
+        let
+          actual :: (Definitions OA.Schema, OA.Schema)
+          actual =
+            toOpenApiSchema (Proxy @(
+              JsonLet '[
+                '("foo", JsonNum),
+                '("bar", JsonString)
+              ]
+              (JsonRef "bar")
+            ))
+
+          expected :: (Definitions OA.Schema, OA.Schema)
+          expected =
+            ( HMI.fromList [("foo", numSchema), ("bar", stringSchema)]
+            , stringSchema
+            )
+        in
+          actual `shouldBe` expected
+
+      it "lower level reference" $
+        let
+          actual :: (Definitions OA.Schema, OA.Schema)
+          actual =
+            toOpenApiSchema (Proxy @(
+              JsonObject '[
+                '("foo",
+                  JsonLet
+                    '[ '("thing", JsonString)]
+                    (JsonRef "thing")
+                 )
+              ]
+            ))
+
+          expected :: (Definitions OA.Schema, OA.Schema)
+          expected =
+            ( HMI.singleton "thing" stringSchema
+            , mempty
+                & set OA.type_ (Just OA.OpenApiObject)
+                & set OA.properties (
+                    mempty
+                      & set (at "foo") (Just (OA.Ref (OA.Reference "thing")))
+                  )
+                & set OA.required ["foo"]
+                & set
+                    OA.additionalProperties
+                    (Just (OA.AdditionalPropertiesAllowed False))
+            )
+        in
+          actual `shouldBe` expected
+
     describe "EncodingSpec" $
       it "works" $
         let
