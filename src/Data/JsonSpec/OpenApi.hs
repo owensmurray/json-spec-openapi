@@ -314,7 +314,7 @@ instance Schemaable 'JsonDateTime where
       mempty
         & set type_ (Just OpenApiString)
         & set format (Just "date-time")
-instance
+instance {- Undefined Let -}
     Unsatisfiable (
       T "`JsonRef \"" :<>: T target :<>: T "\"` is not defined.\n"
       :$$: T "You are trying to use a JsonRef as the \"top level\" "
