@@ -104,16 +104,17 @@ import Data.Aeson (ToJSON(toJSON))
 import Data.Functor.Identity (Identity(runIdentity))
 import Data.JsonSpec (HasJsonDecodingSpec(DecodingSpec),
   HasJsonEncodingSpec(EncodingSpec), Specification(JsonArray, JsonBool,
-  JsonDateTime, JsonEither, JsonInt, JsonLet, JsonNum, JsonObject,
-  JsonRef, JsonString, JsonTag))
+  JsonDateTime, JsonEither, JsonInt, JsonLet, JsonNullable, JsonNum,
+  JsonObject, JsonRef, JsonString, JsonTag))
 import Data.OpenApi (AdditionalProperties(AdditionalPropertiesAllowed),
   HasAdditionalProperties(additionalProperties), HasEnum(enum_),
   HasFormat(format), HasItems(items), HasOneOf(oneOf),
   HasProperties(properties), HasRequired(required), HasType(type_),
   NamedSchema(NamedSchema), OpenApiItems(OpenApiItemsObject),
-  OpenApiType(OpenApiArray, OpenApiBoolean, OpenApiInteger, OpenApiNumber,
-  OpenApiObject, OpenApiString), Reference(Reference), Referenced(Inline,
-  Ref), ToSchema(declareNamedSchema), Definitions, Schema)
+  OpenApiType(OpenApiArray, OpenApiBoolean, OpenApiInteger, OpenApiNull,
+  OpenApiNumber, OpenApiObject, OpenApiString), Reference(Reference),
+  Referenced(Inline, Ref), ToSchema(declareNamedSchema), Definitions,
+  Schema)
 import Data.OpenApi.Declare (DeclareT(runDeclareT), MonadDeclare(declare))
 import Data.String (IsString(fromString))
 import Data.Text (Text)
@@ -364,6 +365,16 @@ instance {- Schemaable (JsonLet defs spec) -}
     schemaable Proxy = do
       mkDefs (Proxy @defs)
       schemaable (Proxy @spec)
+instance (Schemaable spec) => Schemaable (JsonNullable spec) where
+  schemaable Proxy = do
+    schema <- schemaable (Proxy @spec)
+    pure $
+      mempty
+        & set oneOf (Just
+            [ Inline (mempty & set type_ (Just OpenApiNull))
+            , Inline schema
+            ]
+        )
 
 
 {-| Go through and make a declaration for each item in a JsonLet.  -}

@@ -16,7 +16,8 @@ import Data.Aeson (ToJSON(toJSON), FromJSON, encode)
 import Data.JsonSpec (Field(Field), HasJsonDecodingSpec(DecodingSpec,
   fromJSONStructure), HasJsonEncodingSpec(EncodingSpec, toJSONStructure),
   SpecJSON(SpecJSON), Specification(JsonArray, JsonBool, JsonDateTime,
-  JsonEither, JsonLet, JsonNum, JsonObject, JsonRef, JsonString, JsonTag))
+  JsonEither, JsonInt, JsonLet, JsonNullable, JsonNum, JsonObject,
+  JsonRef, JsonString, JsonTag))
 import Data.JsonSpec.OpenApi (EncodingSchema, toOpenApiSchema)
 import Data.OpenApi (Definitions, ToSchema)
 import Data.Proxy (Proxy(Proxy))
@@ -190,6 +191,27 @@ main =
           expected = (mempty, boolSchema)
         in
           actual `shouldBe` expected
+
+      it "nullable" $
+        let
+          actual :: (Definitions OA.Schema, OA.Schema)
+          actual =
+            toOpenApiSchema (Proxy @(JsonNullable JsonInt))
+
+          expected :: (Definitions OA.Schema, OA.Schema)
+          expected =
+            ( mempty
+            , mempty
+                & set OA.oneOf (Just
+                  [ OA.Inline $
+                      mempty & set OA.type_ (Just OA.OpenApiNull)
+                  , OA.Inline $
+                      mempty & set OA.type_ (Just OA.OpenApiInteger)
+                  ]
+                )
+            )
+        in
+          encode actual `shouldBe` encode expected
 
       it "date-time" $
         let
