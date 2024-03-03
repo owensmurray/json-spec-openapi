@@ -8,23 +8,25 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Main (main) where
 
 import Control.Lens (At(at), (&), set)
 import Data.Aeson (ToJSON(toJSON), FromJSON, encode)
-import Data.JsonSpec (Field(Field), HasJsonDecodingSpec(DecodingSpec,
-  fromJSONStructure), HasJsonEncodingSpec(EncodingSpec, toJSONStructure),
-  SpecJSON(SpecJSON), Specification(JsonArray, JsonBool, JsonDateTime,
-  JsonEither, JsonInt, JsonLet, JsonNullable, JsonNum, JsonObject,
-  JsonRef, JsonString, JsonTag))
+import Data.JsonSpec (Field(Field, unField), FieldSpec(Optional,
+  Required), HasJsonDecodingSpec(DecodingSpec, fromJSONStructure),
+  HasJsonEncodingSpec(EncodingSpec, toJSONStructure), SpecJSON(SpecJSON),
+  Specification(JsonArray, JsonBool, JsonDateTime, JsonEither, JsonInt,
+  JsonLet, JsonNullable, JsonNum, JsonObject, JsonRef, JsonString,
+  JsonTag))
 import Data.JsonSpec.OpenApi (EncodingSchema, toOpenApiSchema)
 import Data.OpenApi (Definitions, ToSchema)
 import Data.Proxy (Proxy(Proxy))
 import Data.Text (Text)
 import Data.Time (UTCTime)
-import Prelude (Applicative(pure), Bool(False), Maybe(Just),
-  Monoid(mempty), ($), Eq, IO, Show)
+import Prelude (Applicative(pure), Bool(False), Functor(fmap),
+  Maybe(Just), Monoid(mempty), ($), Eq, IO, Show)
 import Test.Hspec (describe, hspec, it, shouldBe)
 import qualified Data.HashMap.Strict.InsOrd as HMI
 import qualified Data.OpenApi as OA
@@ -52,14 +54,14 @@ main =
               JsonEither
                 (
                   JsonObject
-                    '[ '("tag", JsonTag "a")
-                     , '("content", JsonString)
+                    '[ Required "tag" (JsonTag "a")
+                     , Required "content" JsonString
                      ]
                 )
                 (
                   JsonObject
-                    '[ '("tag", JsonTag "b")
-                     , '("content", JsonString)
+                    '[ Required "tag" (JsonTag "b")
+                     , Required "content" JsonString
                      ]
                 )
             ))
@@ -109,8 +111,8 @@ main =
           actual =
             toOpenApiSchema (Proxy @(
               JsonObject '[
-                '("Foo", JsonString),
-                '("Bar", JsonString)
+                Required "Foo" JsonString,
+                Required "Bar" JsonString
               ]
             ))
 
@@ -149,8 +151,8 @@ main =
             toOpenApiSchema (Proxy @(
               JsonArray (
                 JsonObject '[
-                  '("Foo", JsonString),
-                  '("Bar", JsonString)
+                  Required "Foo" JsonString,
+                  Required "Bar" JsonString
                 ]
               )
             ))
@@ -213,6 +215,35 @@ main =
         in
           encode actual `shouldBe` encode expected
 
+      it "optional" $
+        let
+          actual :: (Definitions OA.Schema, OA.Schema)
+          actual =
+            toOpenApiSchema (Proxy @(
+              JsonObject '[
+                Required "foo" JsonString,
+                Optional "bar" JsonString
+              ]
+            ))
+
+          expected :: (Definitions OA.Schema, OA.Schema)
+          expected =
+            ( mempty
+            , mempty
+                & set OA.type_ (Just OA.OpenApiObject)
+                & set OA.properties (
+                    mempty
+                      & set (at "foo") (Just (OA.Inline stringSchema))
+                      & set (at "bar") (Just (OA.Inline stringSchema))
+                  )
+                & set OA.required ["foo"]
+                & set
+                    OA.additionalProperties
+                    (Just (OA.AdditionalPropertiesAllowed False))
+            )
+        in
+          encode actual `shouldBe` encode expected
+
       it "date-time" $
         let
           actual :: (Definitions OA.Schema, OA.Schema)
@@ -237,7 +268,7 @@ main =
               ]
               (
                 JsonObject '[
-                  '("foo", JsonRef "thing")
+                  Required "foo" (JsonRef "thing")
                 ]
               )
             ))
@@ -285,11 +316,11 @@ main =
           actual =
             toOpenApiSchema (Proxy @(
               JsonObject '[
-                '("foo",
+                Required "foo" (
                   JsonLet
                     '[ '("thing", JsonString)]
                     (JsonRef "thing")
-                 )
+                )
               ]
             ))
 
@@ -310,7 +341,7 @@ main =
         in
           actual `shouldBe` expected
 
-    describe "EncodingSpec" $
+    describe "EncodingSchema" $
       it "works" $
         let
           actual :: OA.Schema
@@ -325,7 +356,7 @@ main =
                     & set (at "name") (Just (OA.Inline stringSchema))
                     & set (at "last-login") (Just (OA.Inline dateSchema))
                 )
-              & set OA.required ["name", "last-login"]
+              & set OA.required ["name"]
               & set
                   OA.additionalProperties
                   (Just (OA.AdditionalPropertiesAllowed False))
@@ -334,28 +365,32 @@ main =
           encode actual `shouldBe` encode expected
 
 
+{-
+  This is the example used in the docs. If you update it, then update
+  the docs as well.
+-}
 data User = User
   {      name :: Text
-  , lastLogin :: UTCTime
+  , lastLogin :: Maybe UTCTime
   }
   deriving stock (Show, Eq)
-  deriving ToSchema via (EncodingSchema User)
+  deriving ToSchema via (EncodingSchema User) -- <-- ToSchema instance defined here
   deriving (ToJSON, FromJSON) via (SpecJSON User)
 instance HasJsonEncodingSpec User where
   type EncodingSpec User =
     JsonObject
-      '[ '("name", JsonString)
-       , '("last-login", JsonDateTime)
+      '[ Required "name" JsonString
+       , Optional "last-login" JsonDateTime
        ]
   toJSONStructure user =
     (Field @"name" (name user),
-    (Field @"last-login" (lastLogin user),
+    (fmap (Field @"last-login") (lastLogin user),
     ()))
 instance HasJsonDecodingSpec User where
   type DecodingSpec User = EncodingSpec User
   fromJSONStructure
       (Field @"name" name,
-      (Field @"last-login" lastLogin,
+      (fmap (unField @"last-login") ->  lastLogin,
       ()))
     =
       pure User { name , lastLogin }

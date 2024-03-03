@@ -25,18 +25,18 @@
 
   > data User = User
   >   {      name :: Text
-  >   , lastLogin :: UTCTime
+  >   , lastLogin :: Maybe UTCTime
   >   }
   >   deriving ToSchema via (EncodingSchema User) -- <-- ToSchema instance defined here
   > instance HasJsonEncodingSpec User where
   >   type EncodingSpec User =
   >     JsonObject
-  >       '[ '("name", JsonString)
-  >        , '("last-login", JsonDateTime)
+  >       '[ Required "name" JsonString
+  >        , Optional "last-login" JsonDateTime
   >        ]
   >   toJSONStructure user =
   >     (Field @"name" (name user),
-  >     (Field @"last-login" (lastLogin user),
+  >     (fmap (Field @"last-login") (lastLogin user),
   >     ()))
 
   Calling @'Data.Aeson.encode' ('Data.OpenApi3.toSchema' ('Proxy' :: 'Proxy' User))@
@@ -54,8 +54,7 @@
   >     }
   >   },
   >   "required": [
-  >     "name",
-  >     "last-login"
+  >     "name"
   >   ],
   >   "type": "object"
   > }
@@ -66,17 +65,17 @@
 
   > data User = User
   >   {      name :: Text
-  >   , lastLogin :: UTCTime
+  >   , lastLogin :: Maybe UTCTime
   >   }
   > instance HasJsonEncodingSpec User where
   >   type EncodingSpec User =
   >     JsonObject
-  >       '[ '("name", JsonString)
-  >        , '("last-login", JsonDateTime)
+  >       '[ Required "name" JsonString
+  >        , Optional "last-login" JsonDateTime
   >        ]
   >   toJSONStructure user =
   >     (Field @"name" (name user),
-  >     (Field @"last-login" (lastLogin user),
+  >     (fmap (Field @"last-login") (lastLogin user),
   >     ()))
   > instance ToSchema User where
   >   declareNamedSchema _proxy =
@@ -102,10 +101,11 @@ module Data.JsonSpec.OpenApi (
 import Control.Lens (At(at), (&), over, set)
 import Data.Aeson (ToJSON(toJSON))
 import Data.Functor.Identity (Identity(runIdentity))
-import Data.JsonSpec (HasJsonDecodingSpec(DecodingSpec),
-  HasJsonEncodingSpec(EncodingSpec), Specification(JsonArray, JsonBool,
-  JsonDateTime, JsonEither, JsonInt, JsonLet, JsonNullable, JsonNum,
-  JsonObject, JsonRef, JsonString, JsonTag))
+import Data.JsonSpec (FieldSpec(Optional, Required),
+  HasJsonDecodingSpec(DecodingSpec), HasJsonEncodingSpec(EncodingSpec),
+  Specification(JsonArray, JsonBool, JsonDateTime, JsonEither, JsonInt,
+  JsonLet, JsonNullable, JsonNum, JsonObject, JsonRef, JsonString,
+  JsonTag))
 import Data.OpenApi (AdditionalProperties(AdditionalPropertiesAllowed),
   HasAdditionalProperties(additionalProperties), HasEnum(enum_),
   HasFormat(format), HasItems(items), HasOneOf(oneOf),
@@ -277,27 +277,36 @@ instance Schemaable ('JsonObject '[]) where
       mempty
         & set type_ (Just OpenApiObject)
         & set additionalProperties (Just (AdditionalPropertiesAllowed False))
-instance {- Schemaable ('JsonObject ( '(key, spec) : more )) -}
+instance {- Schemaable ('JsonObject ( Optional key spec : more )) -}
     ( Schemaable ('JsonObject more)
     , Refable spec
     , KnownSymbol key
     )
   =>
-    Schemaable ('JsonObject ( '(key, spec) : more ))
+    Schemaable ('JsonObject ( Optional key spec : more ))
   where
     schemaable Proxy = do
-      let
-        propertyName :: Text
-        propertyName = sym @key
-
       propertySchema <- refable (Proxy @spec)
       more <- schemaable (Proxy @('JsonObject more))
       pure $
         more
           & over
               properties
-              (set (at propertyName) (Just propertySchema))
-          & over required (propertyName:)
+              (set (at (sym @key)) (Just propertySchema))
+instance {- Schemaable ('JsonObject ( Required key spec : more )) -}
+    ( Schemaable ('JsonObject more)
+    , Refable spec
+    , KnownSymbol key
+    )
+  =>
+    Schemaable (JsonObject ( Required key spec : more ))
+  where
+    schemaable Proxy = do
+      schema <- schemaable (Proxy @(JsonObject ( Optional key spec : more )))
+      pure $
+        schema
+          & over required (sym @key:)
+
 instance (Schemaable spec) => Schemaable ('JsonArray spec) where
   schemaable Proxy = do
     elementSchema <- schemaable (Proxy @spec)
