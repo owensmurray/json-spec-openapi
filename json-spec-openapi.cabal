@@ -1,6 +1,6 @@
 cabal-version:       3.0
 name:                json-spec-openapi
-version:             0.2.1.1
+version:             0.3.0.0
 synopsis:            json-spec-openapi
 description:
   This package provides a way to produce
@@ -14,18 +14,18 @@ description:
 
   > data User = User
   >   {      name :: Text
-  >   , lastLogin :: UTCTime
+  >   , lastLogin :: Maybe UTCTime
   >   }
   >   deriving ToSchema via (EncodingSchema User) -- <-- ToSchema instance defined here
   > instance HasJsonEncodingSpec User where
   >   type EncodingSpec User =
   >     JsonObject
-  >       '[ '("name", JsonString)
-  >        , '("last-login", JsonDateTime)
+  >       '[ Required "name" JsonString
+  >        , Optional "last-login" JsonDateTime
   >        ]
   >   toJSONStructure user =
   >     (Field @"name" (name user),
-  >     (Field @"last-login" (lastLogin user),
+  >     (fmap (Field @"last-login") (lastLogin user),
   >     ()))
 
   Calling `Data.Aeson.encode (Data.OpenApi3.toSchema (Proxy :: Proxy User))`
@@ -43,8 +43,7 @@ description:
   >     }
   >   },
   >   "required": [
-  >     "name",
-  >     "last-login"
+  >     "name"
   >   ],
   >   "type": "object"
   > }
@@ -65,7 +64,7 @@ common dependencies
     , aeson                     >= 2.2.1.0  && < 2.3
     , base                      >= 4.19.0.0 && < 4.20
     , insert-ordered-containers >= 0.2.5.3  && < 0.3
-    , json-spec                 >= 0.2.1.3  && < 0.3
+    , json-spec                 >= 0.3.0.0  && < 0.4
     , lens                      >= 5.2.3    && < 5.3
     , openapi3                  >= 3.2.4    && < 3.3
     , text                      >= 2.1      && < 2.2

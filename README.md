@@ -12,18 +12,18 @@ Given this data type:
 ```haskell
 data User = User
   {      name :: Text
-  , lastLogin :: UTCTime
+  , lastLogin :: Maybe UTCTime
   }
   deriving ToSchema via (EncodingSchema User) -- <-- ToSchema instance defined here
 instance HasJsonEncodingSpec User where
   type EncodingSpec User =
     JsonObject
-      '[ '("name", JsonString)
-       , '("last-login", JsonDateTime)
+      '[ Required "name" JsonString
+       , Optional "last-login" JsonDateTime
        ]
   toJSONStructure user =
     (Field @"name" (name user),
-    (Field @"last-login" (lastLogin user),
+    (fmap (Field @"last-login") (lastLogin user),
     ()))
 ```
 
@@ -43,8 +43,7 @@ will produce the following Schema:
     }
   },
   "required": [
-    "name",
-    "last-login"
+    "name"
   ],
   "type": "object"
 }
