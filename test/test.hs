@@ -13,13 +13,13 @@
 module Main (main) where
 
 import Control.Lens (At(at), (&), set)
-import Data.Aeson (ToJSON(toJSON), FromJSON, encode)
-import Data.JsonSpec (Field(Field, unField), FieldSpec(Optional,
+import Data.Aeson (ToJSON(toJSON), FromJSON)
+import Data.JsonSpec (Field(Field), FieldSpec(Optional,
   Required), HasJsonDecodingSpec(DecodingSpec, fromJSONStructure),
   HasJsonEncodingSpec(EncodingSpec, toJSONStructure), SpecJSON(SpecJSON),
   Specification(JsonArray, JsonBool, JsonDateTime, JsonEither, JsonInt,
-  JsonLet, JsonNullable, JsonNum, JsonObject, JsonRef, JsonString,
-  JsonTag))
+  JsonLet, JsonNullable, JsonNum, JsonObject, JsonRaw, JsonRef,
+  JsonString, JsonTag), unField)
 import Data.JsonSpec.OpenApi (EncodingSchema, toOpenApiSchema)
 import Data.OpenApi (Definitions, ToSchema)
 import Data.Proxy (Proxy(Proxy))
@@ -28,6 +28,7 @@ import Data.Time (UTCTime)
 import Prelude (Applicative(pure), Bool(False), Functor(fmap),
   Maybe(Just), Monoid(mempty), ($), Eq, IO, Show)
 import Test.Hspec (describe, hspec, it, shouldBe)
+import qualified Data.Aeson as Aeson
 import qualified Data.HashMap.Strict.InsOrd as HMI
 import qualified Data.OpenApi as OA
 
@@ -134,6 +135,19 @@ main =
         in
           actual `shouldBe` expected
 
+      it "raw" $
+        let
+          actual :: (Definitions OA.Schema, OA.Schema)
+          actual = toOpenApiSchema (Proxy @JsonRaw)
+
+          expected :: (Definitions OA.Schema, OA.Schema)
+          expected =
+            ( mempty
+            , mempty & set OA.type_ (Just OA.OpenApiObject)
+            )
+        in
+          actual `shouldBe` expected
+
       it "num" $
         let
           actual :: (Definitions OA.Schema, OA.Schema)
@@ -213,7 +227,7 @@ main =
                 )
             )
         in
-          encode actual `shouldBe` encode expected
+          Aeson.encode actual `shouldBe` Aeson.encode expected
 
       it "optional" $
         let
@@ -242,7 +256,7 @@ main =
                     (Just (OA.AdditionalPropertiesAllowed False))
             )
         in
-          encode actual `shouldBe` encode expected
+          Aeson.encode actual `shouldBe` Aeson.encode expected
 
       it "date-time" $
         let
@@ -362,7 +376,7 @@ main =
                   (Just (OA.AdditionalPropertiesAllowed False))
 
         in
-          encode actual `shouldBe` encode expected
+          Aeson.encode actual `shouldBe` Aeson.encode expected
 
 
 {-
