@@ -13,7 +13,7 @@
 module Main (main) where
 
 import Control.Lens (At(at), (&), set)
-import Data.Aeson (ToJSON(toJSON), FromJSON, encode)
+import Data.Aeson (ToJSON(toJSON), FromJSON)
 import Data.JsonSpec (Field(Field, unField), FieldSpec(Optional,
   Required), HasJsonDecodingSpec(DecodingSpec, fromJSONStructure),
   HasJsonEncodingSpec(EncodingSpec, toJSONStructure), SpecJSON(SpecJSON),
@@ -28,6 +28,7 @@ import Data.Time (UTCTime)
 import Prelude (Applicative(pure), Bool(False), Functor(fmap),
   Maybe(Just), Monoid(mempty), ($), Eq, IO, Show)
 import Test.Hspec (describe, hspec, it, shouldBe)
+import qualified Data.Aeson as Aeson
 import qualified Data.HashMap.Strict.InsOrd as HMI
 import qualified Data.OpenApi as OA
 
@@ -213,7 +214,7 @@ main =
                 )
             )
         in
-          encode actual `shouldBe` encode expected
+          Aeson.encode actual `shouldBe` Aeson.encode expected
 
       it "optional" $
         let
@@ -242,7 +243,7 @@ main =
                     (Just (OA.AdditionalPropertiesAllowed False))
             )
         in
-          encode actual `shouldBe` encode expected
+          Aeson.encode actual `shouldBe` Aeson.encode expected
 
       it "date-time" $
         let
@@ -362,7 +363,7 @@ main =
                   (Just (OA.AdditionalPropertiesAllowed False))
 
         in
-          encode actual `shouldBe` encode expected
+          Aeson.encode actual `shouldBe` Aeson.encode expected
 
 
 {-
