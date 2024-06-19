@@ -306,7 +306,6 @@ instance {- Schemaable ('JsonObject ( Required key spec : more )) -}
       pure $
         schema
           & over required (sym @key:)
-
 instance (Schemaable spec) => Schemaable ('JsonArray spec) where
   schemaable Proxy = do
     elementSchema <- schemaable (Proxy @spec)
