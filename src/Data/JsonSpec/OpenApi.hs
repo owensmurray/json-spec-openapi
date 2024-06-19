@@ -104,8 +104,8 @@ import Data.Functor.Identity (Identity(runIdentity))
 import Data.JsonSpec (FieldSpec(Optional, Required),
   HasJsonDecodingSpec(DecodingSpec), HasJsonEncodingSpec(EncodingSpec),
   Specification(JsonArray, JsonBool, JsonDateTime, JsonEither, JsonInt,
-  JsonLet, JsonNullable, JsonNum, JsonObject, JsonRef, JsonString,
-  JsonTag))
+  JsonLet, JsonNullable, JsonNum, JsonObject, JsonRaw, JsonRef,
+  JsonString, JsonTag))
 import Data.OpenApi (AdditionalProperties(AdditionalPropertiesAllowed),
   HasAdditionalProperties(additionalProperties), HasEnum(enum_),
   HasFormat(format), HasItems(items), HasOneOf(oneOf),
@@ -383,6 +383,11 @@ instance (Schemaable spec) => Schemaable (JsonNullable spec) where
             , Inline schema
             ]
         )
+instance Schemaable JsonRaw where
+  schemaable Proxy =
+    pure $
+      mempty
+      & set type_ (Just OpenApiObject)
 
 
 {-| Go through and make a declaration for each item in a JsonLet.  -}
