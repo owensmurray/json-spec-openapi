@@ -192,11 +192,12 @@ import qualified GHC.TypeError as TE
       been defined.
 -}
 toOpenApiSchema
-  :: (Schemaable spec)
+  :: forall spec.
+     (Schemaable spec)
   => Proxy (spec :: Specification)
   -> (Definitions Schema, Schema)
-toOpenApiSchema spec =
-  runIdentity (runDeclareT (schemaable spec) mempty)
+toOpenApiSchema Proxy =
+  runIdentity (runDeclareT (schemaable @spec) mempty)
 
 
 {-|
@@ -206,10 +207,9 @@ toOpenApiSchema spec =
 class Refable (spec :: Specification) where
   refable
     :: (MonadDeclare (Definitions Schema) m)
-    => Proxy spec
-    -> m (Referenced Schema)
+    => m (Referenced Schema)
 instance (KnownSymbol name) => Refable (JsonRef name) where
-  refable Proxy =
+  refable =
     pure (ref (sym @name))
 instance
     ( Defs defs
@@ -218,11 +218,11 @@ instance
   =>
     Refable (JsonLet defs (JsonRef name))
   where
-    refable Proxy = do
-      mkDefs (Proxy @defs)
-      refable (Proxy @(JsonRef name))
+    refable = do
+      mkDefs @defs
+      refable @(JsonRef name)
 instance {-# overlaps #-} (Schemaable a) => Refable a where
-  refable = fmap Inline . schemaable
+  refable = fmap Inline (schemaable @a)
 
 
 {-|
@@ -236,14 +236,13 @@ instance {-# overlaps #-} (Schemaable a) => Refable a where
 class Schemaable (spec :: Specification) where
   schemaable
     :: (MonadDeclare (Definitions Schema) m)
-    => Proxy spec
-    -> m Schema
+    => m Schema
 instance (KnownSymbol tag) => Schemaable ('JsonTag tag) where
-  schemaable Proxy =
+  schemaable =
     pure $
       mempty & set enum_ (Just [toJSON (sym @tag :: Text)])
 instance Schemaable 'JsonString where
-  schemaable Proxy =
+  schemaable =
     pure $
       mempty & set type_ (Just OpenApiString)
 instance {- Schemaable ('JsonEither left right) -}
@@ -253,9 +252,9 @@ instance {- Schemaable ('JsonEither left right) -}
   =>
     Schemaable ('JsonEither left right)
   where
-    schemaable Proxy = do
-      schemaLeft <- schemaable (Proxy @left)
-      schemaRight <- schemaable (Proxy @right)
+    schemaable = do
+      schemaLeft <- schemaable @left
+      schemaRight <- schemaable @right
       pure $
         mempty
           & set oneOf (Just
@@ -264,15 +263,15 @@ instance {- Schemaable ('JsonEither left right) -}
               ]
           )
 instance Schemaable 'JsonNum where
-  schemaable Proxy =
+  schemaable =
     pure $
       mempty & set type_ (Just OpenApiNumber)
 instance Schemaable 'JsonInt where
-  schemaable Proxy =
+  schemaable =
     pure $
       mempty & set type_ (Just OpenApiInteger)
 instance Schemaable ('JsonObject '[]) where
-  schemaable Proxy =
+  schemaable =
     pure $
       mempty
         & set type_ (Just OpenApiObject)
@@ -285,9 +284,9 @@ instance {- Schemaable ('JsonObject ( Optional key spec : more )) -}
   =>
     Schemaable ('JsonObject ( Optional key spec : more ))
   where
-    schemaable Proxy = do
-      propertySchema <- refable (Proxy @spec)
-      more <- schemaable (Proxy @('JsonObject more))
+    schemaable = do
+      propertySchema <- refable @spec
+      more <- schemaable @('JsonObject more)
       pure $
         more
           & over
@@ -301,24 +300,24 @@ instance {- Schemaable ('JsonObject ( Required key spec : more )) -}
   =>
     Schemaable (JsonObject ( Required key spec : more ))
   where
-    schemaable Proxy = do
-      schema <- schemaable (Proxy @(JsonObject ( Optional key spec : more )))
+    schemaable = do
+      schema <- schemaable @(JsonObject ( Optional key spec : more ))
       pure $
         schema
           & over required (sym @key:)
 instance (Schemaable spec) => Schemaable ('JsonArray spec) where
-  schemaable Proxy = do
-    elementSchema <- schemaable (Proxy @spec)
+  schemaable = do
+    elementSchema <- schemaable @spec
     pure $
       mempty
         & set type_ (Just OpenApiArray)
         & set items (Just (OpenApiItemsObject (Inline elementSchema)))
 instance Schemaable 'JsonBool where
-  schemaable Proxy =
+  schemaable =
     pure $
       mempty & set type_ (Just OpenApiBoolean)
 instance Schemaable 'JsonDateTime where
-  schemaable Proxy =
+  schemaable =
     pure $
       mempty
         & set type_ (Just OpenApiString)
@@ -345,10 +344,10 @@ instance {- Schemaable (JsonLet ( '(target, def) ': more) (JsonRef target)) -}
   =>
     Schemaable (JsonLet ( '(target, def) ': more) (JsonRef target))
   where
-    schemaable Proxy = do
-      defSchema <- schemaable (Proxy @def)
+    schemaable = do
+      defSchema <- schemaable @def
       declare (HMI.singleton (sym @target) defSchema)
-      schemaable (Proxy @(JsonLet more def))
+      schemaable @(JsonLet more def)
 instance {- Schemaable (JsonLet ( '(name, def) ': more) (JsonRef target)) -}
     {-# overlaps #-}
     ( KnownSymbol name
@@ -358,10 +357,10 @@ instance {- Schemaable (JsonLet ( '(name, def) ': more) (JsonRef target)) -}
   =>
     Schemaable (JsonLet ( '(name, def) ': more) (JsonRef target))
   where
-    schemaable Proxy = do
-      defSchema <- schemaable (Proxy @def)
+    schemaable = do
+      defSchema <- schemaable @def
       declare (HMI.singleton (sym @name) defSchema)
-      schemaable (Proxy @(JsonLet more (JsonRef target)))
+      schemaable @(JsonLet more (JsonRef target))
 instance {- Schemaable (JsonLet defs spec) -}
     {-# overlaps #-}
     ( Defs defs
@@ -370,12 +369,12 @@ instance {- Schemaable (JsonLet defs spec) -}
   =>
     Schemaable (JsonLet defs spec)
   where
-    schemaable Proxy = do
-      mkDefs (Proxy @defs)
-      schemaable (Proxy @spec)
+    schemaable = do
+      mkDefs @defs
+      schemaable @spec
 instance (Schemaable spec) => Schemaable (JsonNullable spec) where
-  schemaable Proxy = do
-    schema <- schemaable (Proxy @spec)
+  schemaable = do
+    schema <- schemaable @spec
     pure $
       mempty
         & set oneOf (Just
@@ -384,7 +383,7 @@ instance (Schemaable spec) => Schemaable (JsonNullable spec) where
             ]
         )
 instance Schemaable JsonRaw where
-  schemaable Proxy =
+  schemaable =
     pure $
       mempty
       & set type_ (Just OpenApiObject)
@@ -394,10 +393,9 @@ instance Schemaable JsonRaw where
 class Defs (defs :: [(Symbol, Specification)]) where
   mkDefs
     :: (MonadDeclare (Definitions Schema) m)
-    => Proxy defs
-    -> m ()
+    => m ()
 instance Defs '[] where
-  mkDefs Proxy = pure ()
+  mkDefs = pure ()
 instance
     ( Defs more
     , Schemaable spec
@@ -406,10 +404,10 @@ instance
   =>
     Defs ( '(name, spec) ': more)
   where
-    mkDefs Proxy = do
-      schema <- schemaable (Proxy @spec)
+    mkDefs = do
+      schema <- schemaable @spec
       declare (HMI.singleton (sym @name) schema)
-      mkDefs (Proxy @more)
+      mkDefs @more
 
 
 {-|
