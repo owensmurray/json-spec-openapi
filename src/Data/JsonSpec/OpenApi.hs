@@ -1,9 +1,11 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -95,36 +97,47 @@ module Data.JsonSpec.OpenApi (
   Schemaable,
   EncodingSchema(..),
   DecodingSchema(..),
+  Rename,
 ) where
 
 
 import Control.Lens (At(at), (&), over, set)
 import Data.Aeson (ToJSON(toJSON))
 import Data.Functor.Identity (Identity(runIdentity))
-import Data.JsonSpec (FieldSpec(Optional, Required),
-  HasJsonDecodingSpec(DecodingSpec), HasJsonEncodingSpec(EncodingSpec),
-  Specification(JsonArray, JsonBool, JsonDateTime, JsonEither, JsonInt,
-  JsonLet, JsonNullable, JsonNum, JsonObject, JsonRaw, JsonRef,
-  JsonString, JsonTag))
-import Data.OpenApi (AdditionalProperties(AdditionalPropertiesAllowed),
-  HasAdditionalProperties(additionalProperties), HasEnum(enum_),
-  HasFormat(format), HasItems(items), HasOneOf(oneOf),
-  HasProperties(properties), HasRequired(required), HasType(type_),
-  NamedSchema(NamedSchema), OpenApiItems(OpenApiItemsObject),
-  OpenApiType(OpenApiArray, OpenApiBoolean, OpenApiInteger, OpenApiNull,
-  OpenApiNumber, OpenApiObject, OpenApiString), Reference(Reference),
-  Referenced(Inline, Ref), ToSchema(declareNamedSchema), Definitions,
-  Schema)
+import Data.JsonSpec
+  ( FieldSpec(Optional, Required), HasJsonDecodingSpec(DecodingSpec)
+  , HasJsonEncodingSpec(EncodingSpec)
+  , Specification
+    ( JsonArray, JsonBool, JsonDateTime, JsonEither, JsonInt, JsonLet
+    , JsonNullable, JsonNum, JsonObject, JsonRaw, JsonRef, JsonString, JsonTag
+    )
+  )
+import Data.JsonSpec.OpenApi.Rename (Rename)
+import Data.OpenApi
+  ( AdditionalProperties(AdditionalPropertiesAllowed)
+  , HasAdditionalProperties(additionalProperties), HasEnum(enum_)
+  , HasFormat(format), HasItems(items), HasOneOf(oneOf)
+  , HasProperties(properties), HasRequired(required), HasType(type_)
+  , NamedSchema(NamedSchema), OpenApiItems(OpenApiItemsObject)
+  , OpenApiType
+    ( OpenApiArray, OpenApiBoolean, OpenApiInteger, OpenApiNull, OpenApiNumber
+    , OpenApiObject, OpenApiString
+    )
+  , Reference(Reference), Referenced(Inline), ToSchema(declareNamedSchema)
+  , Definitions, Schema
+  )
 import Data.OpenApi.Declare (DeclareT(runDeclareT), MonadDeclare(declare))
 import Data.String (IsString(fromString))
 import Data.Text (Text)
 import Data.Typeable (Proxy(Proxy), Typeable)
-import GHC.TypeError (ErrorMessage((:$$:), (:<>:)), Unsatisfiable,
-  unsatisfiable)
+import GHC.TypeError (ErrorMessage((:$$:), (:<>:)), Unsatisfiable, unsatisfiable)
 import GHC.TypeLits (KnownSymbol, Symbol, symbolVal)
-import Prelude (Applicative(pure), Bool(False), Functor(fmap), Maybe(Just,
-  Nothing), Monoid(mempty), ($), (.))
+import Prelude
+  ( Applicative(pure), Bool(False), Functor(fmap), Maybe(Just, Nothing)
+  , Monoid(mempty), ($), (.)
+  )
 import qualified Data.HashMap.Strict.InsOrd as HMI
+import qualified Data.OpenApi as OA
 import qualified GHC.TypeError as TE
 
 
@@ -201,31 +214,6 @@ toOpenApiSchema Proxy =
 
 
 {-|
-  Specifications that can be turned into OpenApi Schemas or a reference
-  to a schema.
--}
-class Refable (spec :: Specification) where
-  refable
-    :: (MonadDeclare (Definitions Schema) m)
-    => m (Referenced Schema)
-instance (KnownSymbol name) => Refable (JsonRef name) where
-  refable =
-    pure (ref (sym @name))
-instance
-    ( Defs defs
-    , KnownSymbol name
-    )
-  =>
-    Refable (JsonLet defs (JsonRef name))
-  where
-    refable = do
-      mkDefs @defs
-      refable @(JsonRef name)
-instance {-# overlaps #-} (Schemaable a) => Refable a where
-  refable = fmap Inline (schemaable @a)
-
-
-{-|
   Specifications that can be turned into OpenApi 'Schema's.
 
   This is intended to be an opaque implementation detail. The only
@@ -237,177 +225,228 @@ class Schemaable (spec :: Specification) where
   schemaable
     :: (MonadDeclare (Definitions Schema) m)
     => m Schema
-instance (KnownSymbol tag) => Schemaable ('JsonTag tag) where
-  schemaable =
+
+instance (Inlineable '[] spec) => Schemaable spec where
+  schemaable = inlineable @'[] @spec
+
+class
+    Inlineable
+      (defs :: [ (Symbol, Specification) ])
+      (spec :: Specification)
+  where
+    inlineable
+      :: (MonadDeclare (Definitions Schema) m)
+      => m Schema
+instance (KnownSymbol tag) => Inlineable defs ('JsonTag tag) where
+  inlineable =
     pure $
       mempty & set enum_ (Just [toJSON (sym @tag :: Text)])
-instance Schemaable 'JsonString where
-  schemaable =
+instance Inlineable defs JsonString where
+  inlineable =
     pure $
       mempty & set type_ (Just OpenApiString)
-instance {- Schemaable ('JsonEither left right) -}
-    ( Schemaable left
-    , Schemaable right
+instance {- Inlineable defs ('JsonEither left right) -}
+    ( Refable defs left
+    , Refable defs right
     )
   =>
-    Schemaable ('JsonEither left right)
+    Inlineable defs ('JsonEither left right)
   where
-    schemaable = do
-      schemaLeft <- schemaable @left
-      schemaRight <- schemaable @right
+    inlineable = do
+      schemaLeft <- refable @defs @left
+      schemaRight <- refable @defs @right
       pure $
         mempty
           & set oneOf (Just
-              [ Inline schemaLeft
-              , Inline schemaRight
+              [ schemaLeft
+              , schemaRight
               ]
           )
-instance Schemaable 'JsonNum where
-  schemaable =
+instance Inlineable defs JsonNum where
+  inlineable =
     pure $
       mempty & set type_ (Just OpenApiNumber)
-instance Schemaable 'JsonInt where
-  schemaable =
+instance Inlineable defs JsonInt where
+  inlineable =
     pure $
       mempty & set type_ (Just OpenApiInteger)
-instance Schemaable ('JsonObject '[]) where
-  schemaable =
+instance Inlineable defs (JsonObject '[]) where
+  inlineable =
     pure $
       mempty
         & set type_ (Just OpenApiObject)
         & set additionalProperties (Just (AdditionalPropertiesAllowed False))
-instance {- Schemaable ('JsonObject ( Optional key spec : more )) -}
-    ( Schemaable ('JsonObject more)
-    , Refable spec
+instance {- Inlineable defs (JsonObject ( Optional key spec : more )) -}
+    ( Inlineable defs (JsonObject more)
+    , Refable defs spec
     , KnownSymbol key
     )
   =>
-    Schemaable ('JsonObject ( Optional key spec : more ))
+    Inlineable defs (JsonObject ( Optional key spec : more ))
   where
-    schemaable = do
-      propertySchema <- refable @spec
-      more <- schemaable @('JsonObject more)
+    inlineable = do
+      propertySchema <- refable @defs @spec
+      more <- inlineable @defs @('JsonObject more)
       pure $
         more
           & over
               properties
               (set (at (sym @key)) (Just propertySchema))
-instance {- Schemaable ('JsonObject ( Required key spec : more )) -}
-    ( Schemaable ('JsonObject more)
-    , Refable spec
+instance {- Inlineable defs (JsonObject ( Required key spec : more )) -}
+    ( Inlineable defs (JsonObject ( Optional key spec : more ))
     , KnownSymbol key
     )
   =>
-    Schemaable (JsonObject ( Required key spec : more ))
+    Inlineable defs (JsonObject ( Required key spec : more ))
   where
-    schemaable = do
-      schema <- schemaable @(JsonObject ( Optional key spec : more ))
+    inlineable = do
+      schema <- inlineable @defs @(JsonObject ( Optional key spec : more ))
       pure $
         schema
           & over required (sym @key:)
-instance (Schemaable spec) => Schemaable ('JsonArray spec) where
-  schemaable = do
-    elementSchema <- schemaable @spec
-    pure $
-      mempty
-        & set type_ (Just OpenApiArray)
-        & set items (Just (OpenApiItemsObject (Inline elementSchema)))
-instance Schemaable 'JsonBool where
-  schemaable =
+instance {- Inlineable defs (JsonArray spec) -}
+    (Refable defs spec)
+  =>
+    Inlineable defs (JsonArray spec)
+  where
+    inlineable = do
+      elementSchema <- refable @defs @spec
+      pure $
+        mempty
+          & set type_ (Just OpenApiArray)
+          & set items (Just (OpenApiItemsObject elementSchema))
+instance Inlineable defs JsonBool where
+  inlineable =
     pure $
       mempty & set type_ (Just OpenApiBoolean)
-instance Schemaable 'JsonDateTime where
-  schemaable =
+instance Inlineable defs JsonDateTime where
+  inlineable =
     pure $
       mempty
         & set type_ (Just OpenApiString)
         & set format (Just "date-time")
-instance {- Undefined Let -}
-    Unsatisfiable (
-      T "`JsonRef \"" :<>: T target :<>: T "\"` is not defined.\n"
-      :$$: T "You are trying to use a JsonRef as the \"top level\" "
-      :$$: T "schema. We try to satisfy this request by looking up "
-      :$$: T "the reference and inlining it.  However in this case you "
-      :$$: T "are trying to reference a schema which is not defined, "
-      :$$: T "so this won't work.\n"
-    )
-  =>
-    Schemaable (JsonLet '[] (JsonRef target))
-  where
-    schemaable = unsatisfiable
-instance {- Schemaable (JsonLet ( '(target, def) ': more) (JsonRef target)) -}
-    {-# overlaps #-}
-    ( KnownSymbol target
-    , Schemaable def
-    , Schemaable (JsonLet more def)
-    )
-  =>
-    Schemaable (JsonLet ( '(target, def) ': more) (JsonRef target))
-  where
-    schemaable = do
-      defSchema <- schemaable @def
-      declare (HMI.singleton (sym @target) defSchema)
-      schemaable @(JsonLet more def)
-instance {- Schemaable (JsonLet ( '(name, def) ': more) (JsonRef target)) -}
-    {-# overlaps #-}
-    ( KnownSymbol name
-    , Schemaable def
-    , Schemaable (JsonLet more (JsonRef target))
-    )
-  =>
-    Schemaable (JsonLet ( '(name, def) ': more) (JsonRef target))
-  where
-    schemaable = do
-      defSchema <- schemaable @def
-      declare (HMI.singleton (sym @name) defSchema)
-      schemaable @(JsonLet more (JsonRef target))
-instance {- Schemaable (JsonLet defs spec) -}
-    {-# overlaps #-}
-    ( Defs defs
-    , Schemaable spec
-    )
-  =>
-    Schemaable (JsonLet defs spec)
-  where
-    schemaable = do
-      mkDefs @defs
-      schemaable @spec
-instance (Schemaable spec) => Schemaable (JsonNullable spec) where
-  schemaable = do
-    schema <- schemaable @spec
+instance (Refable defs spec) => Inlineable defs (JsonNullable spec) where
+  inlineable = do
+    schema <- refable @defs @spec
     pure $
       mempty
         & set oneOf (Just
             [ Inline (mempty & set type_ (Just OpenApiNull))
-            , Inline schema
+            , schema
             ]
         )
-instance Schemaable JsonRaw where
-  schemaable =
+instance Inlineable defs JsonRaw where
+  inlineable =
     pure $
       mempty
       & set type_ (Just OpenApiObject)
+instance {- Inlineable defs (JsonLet newDefs spec) -}
+    ( Inlineable (Concat newDefs defs) spec
+    , Defs newDefs newDefs
+    )
+  =>
+    Inlineable defs (JsonLet newDefs spec)
+  where
+    inlineable = do
+      mkDefs @newDefs @newDefs
+      inlineable @(Concat newDefs defs) @spec
+instance {- Inlineable defs (JsonRef target) -}
+    ( Deref defs defs target
+    )
+  =>
+    Inlineable defs (JsonRef target)
+  where
+    inlineable = deref @defs @defs @target
+
+
+{-|
+  Specifications that can be turned into OpenApi Schemas or a reference
+  to a schema.
+-}
+class
+    Refable
+      (defs :: [(Symbol, Specification)])
+      (spec :: Specification)
+  where
+    refable
+      :: (MonadDeclare (Definitions Schema) m)
+      => m (Referenced Schema)
+instance {-# overlappable #-} (Inlineable defs a) => Refable defs a where
+  refable = fmap Inline (inlineable @defs @a)
+instance
+    ( Defs newDefs newDefs
+    , Refable (Concat newDefs defs) spec
+    )
+  =>
+    Refable defs (JsonLet newDefs spec)
+  where
+    refable = do
+      mkDefs @newDefs @newDefs
+      refable @(Concat newDefs defs) @spec
+instance (KnownSymbol name) => Refable defs (JsonRef name) where
+  refable =
+    pure (ref (sym @name))
+
+
+class
+    Deref
+      (defs   :: [(Symbol, Specification)])
+      (search :: [(Symbol, Specification)])
+      (target :: Symbol)
+  where
+    deref
+      :: MonadDeclare (Definitions Schema) m
+      => m Schema
+instance (NotDereferenceable defs target) => Deref defs '[] target where
+  deref = unsatisfiable
+instance {- Deref defs ( '(target, spec) ': more) target -}
+    ( Inlineable defs spec
+    )
+  =>
+    Deref defs ( '(target, spec) ': more) target
+  where
+    deref = inlineable @defs @spec
+instance {- Deref defs ( '(miss, spec) ': more) target -}
+    {-# overlaps #-}
+    (Deref defs more target)
+  =>
+    Deref defs ( '(miss, spec) ': more) target
+  where
+    deref =
+      deref @defs @more @target
+type NotDereferenceable defs target =
+  Unsatisfiable (
+    TE.Text
+      "Symbol not defined (in a position \
+      \where we must dereference the referenced schema)."
+      :$$: TE.Text "The symbol is: " :<>: TE.ShowType target
+      :$$: TE.Text "The definitions in scope are: " :<>: TE.ShowType defs
+  )
 
 
 {-| Go through and make a declaration for each item in a JsonLet.  -}
-class Defs (defs :: [(Symbol, Specification)]) where
-  mkDefs
-    :: (MonadDeclare (Definitions Schema) m)
-    => m ()
-instance Defs '[] where
+class
+    Defs
+      (allDefs :: [(Symbol, Specification)])
+      (defs :: [(Symbol, Specification)])
+  where
+    mkDefs
+      :: (MonadDeclare (Definitions Schema) m)
+      => m ()
+instance Defs defs '[] where
   mkDefs = pure ()
-instance
-    ( Defs more
-    , Schemaable spec
+instance {- Defs defs ( '(name, spec) ': more) -}
+    ( Defs defs more
+    , Inlineable defs spec
     , KnownSymbol name
     )
   =>
-    Defs ( '(name, spec) ': more)
+    Defs defs ( '(name, spec) ': more)
   where
     mkDefs = do
-      schema <- schemaable @spec
+      schema <- inlineable @defs @spec
       declare (HMI.singleton (sym @name) schema)
-      mkDefs @more
+      mkDefs @defs @more
 
 
 {-|
@@ -473,10 +512,16 @@ sym = fromString $ symbolVal (Proxy @a)
 
 
 ref :: Text -> Referenced a
-ref = Ref . Reference
+ref = OA.Ref . Reference
 
 
-{-| Shorthand for building custom type errors.  -}
-type T (msg :: Symbol) = TE.Text msg
+type family
+    Concat
+      (a :: [(Symbol, Specification)])
+      (b :: [(Symbol, Specification)])
+      :: [(Symbol, Specification)]
+  where
+    Concat '[] b = b
+    Concat (a : more) b = a : Concat more b
 
 
