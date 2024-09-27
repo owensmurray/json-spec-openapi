@@ -7,6 +7,7 @@
 {-# LANGUAGE TypeAbstractions #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
 
@@ -14,19 +15,25 @@ module Main (main) where
 
 import Control.Lens (At(at), (&), set)
 import Data.Aeson (ToJSON(toJSON), FromJSON)
-import Data.JsonSpec (Field(Field), FieldSpec(Optional,
-  Required), HasJsonDecodingSpec(DecodingSpec, fromJSONStructure),
-  HasJsonEncodingSpec(EncodingSpec, toJSONStructure), SpecJSON(SpecJSON),
-  Specification(JsonArray, JsonBool, JsonDateTime, JsonEither, JsonInt,
-  JsonLet, JsonNullable, JsonNum, JsonObject, JsonRaw, JsonRef,
-  JsonString, JsonTag), unField)
-import Data.JsonSpec.OpenApi (EncodingSchema, toOpenApiSchema)
+import Data.JsonSpec
+  ( Field(Field), FieldSpec(Optional, Required)
+  , HasJsonDecodingSpec(DecodingSpec, fromJSONStructure)
+  , HasJsonEncodingSpec(EncodingSpec, toJSONStructure), SpecJSON(SpecJSON)
+  , Specification
+    ( JsonArray, JsonBool, JsonDateTime, JsonEither, JsonInt, JsonLet
+    , JsonNullable, JsonNum, JsonObject, JsonRaw, JsonRef, JsonString, JsonTag
+    )
+  , (:::), (::?), unField
+  )
+import Data.JsonSpec.OpenApi (EncodingSchema, Rename, toOpenApiSchema)
 import Data.OpenApi (Definitions, ToSchema)
 import Data.Proxy (Proxy(Proxy))
 import Data.Text (Text)
 import Data.Time (UTCTime)
-import Prelude (Applicative(pure), Bool(False), Functor(fmap),
-  Maybe(Just), Monoid(mempty), ($), Eq, IO, Show)
+import Prelude
+  ( Applicative(pure), Bool(False), Functor(fmap), Maybe(Just), Monoid(mempty)
+  , ($), (.), Eq, IO, Show
+  )
 import Test.Hspec (describe, hspec, it, shouldBe)
 import qualified Data.Aeson as Aeson
 import qualified Data.HashMap.Strict.InsOrd as HMI
@@ -78,9 +85,12 @@ main =
                         & set OA.properties (
                             mempty
                               & set (at "tag") (Just (OA.Inline (
-                                  mempty & set OA.enum_ (Just [toJSON ("a" :: Text)])
+                                  mempty
+                                    & set OA.enum_ (Just [toJSON ("a" :: Text)])
                                 )))
-                              & set (at "content") (Just (OA.Inline stringSchema))
+                              & set (at "content") (Just (
+                                  OA.Inline stringSchema
+                                ))
                           )
                         & set OA.required ["tag", "content"]
                         & set
@@ -92,9 +102,12 @@ main =
                         & set OA.properties (
                             mempty
                               & set (at "tag") (Just (OA.Inline (
-                                  mempty & set OA.enum_ (Just [toJSON ("b" :: Text)])
+                                  mempty
+                                    & set OA.enum_ (Just [toJSON ("b" :: Text)])
                                 )))
-                              & set (at "content") (Just (OA.Inline stringSchema))
+                              & set (at "content") (Just (
+                                  OA.Inline stringSchema
+                                ))
                           )
                         & set OA.required ["tag", "content"]
                         & set
@@ -191,7 +204,9 @@ main =
               in
                 mempty
                   & set OA.type_ (Just OA.OpenApiArray)
-                  & set OA.items (Just (OA.OpenApiItemsObject (OA.Inline elementSchema)))
+                  & set OA.items (Just (
+                      OA.OpenApiItemsObject (OA.Inline elementSchema)
+                    ))
             )
 
         in
@@ -353,7 +368,273 @@ main =
                     (Just (OA.AdditionalPropertiesAllowed False))
             )
         in
-          actual `shouldBe` expected
+          Aeson.encode actual `shouldBe` Aeson.encode expected
+
+      it "Mutual recursion" $
+        let
+          barSchema :: OA.Schema
+          barSchema =
+            mempty
+              & set OA.type_ (Just OA.OpenApiObject)
+              & set
+                  OA.additionalProperties
+                  (Just (OA.AdditionalPropertiesAllowed False))
+              & set
+                  OA.properties
+                  (
+                    HMI.fromList
+                      [ ( "recbar"
+                        , OA.Inline (
+                            mempty
+                              & set OA.type_ (Just OA.OpenApiArray)
+                              & set
+                                  OA.items
+                                  (
+                                    Just
+                                    . OA.OpenApiItemsObject
+                                    . OA.Ref
+                                    . OA.Reference
+                                    $ "foo"
+                                  )
+                          )
+                        )
+                      , ( "valbar"
+                        , OA.Inline stringSchema
+                        )
+                      ]
+                  )
+              & set OA.required ["recbar", "valbar"]
+
+          expected :: (Definitions OA.Schema, OA.Schema)
+          expected =
+            ( HMI.fromList
+                [ ( "foo"
+                  , mempty
+                      & set OA.type_ (Just OA.OpenApiObject)
+                      & set
+                          OA.additionalProperties
+                          (Just (OA.AdditionalPropertiesAllowed False))
+                      & set
+                          OA.properties
+                          (
+                            HMI.fromList
+                              [ ( "recfoo"
+                                , OA.Inline (
+                                    mempty
+                                      & set OA.type_ (Just OA.OpenApiArray)
+                                      & set
+                                          OA.items
+                                          (
+                                            Just
+                                            . OA.OpenApiItemsObject
+                                            . OA.Ref
+                                            . OA.Reference
+                                            $ "bar"
+                                          )
+                                  )
+                                )
+                              , ( "valfoo"
+                                , OA.Inline (
+                                    mempty
+                                      & set OA.type_ (Just OA.OpenApiInteger)
+                                  )
+                                )
+                              ]
+                          )
+                      & set OA.required ["recfoo", "valfoo"]
+                  )
+                , ( "bar"
+                  , barSchema
+                  )
+                ]
+            , barSchema
+            )
+
+          actual :: (Definitions OA.Schema, OA.Schema)
+          actual =
+            toOpenApiSchema (Proxy @(
+              JsonLet
+                '[ '( "foo"
+                    , JsonObject
+                        '[ "recfoo" ::: JsonArray (JsonRef "bar")
+                         , "valfoo" ::: JsonInt
+                         ]
+                    )
+                 , '( "bar"
+                    , JsonObject
+                        '[ "recbar" ::: JsonArray (JsonRef "foo")
+                         , "valbar" ::: JsonString
+                         ]
+                    )
+                 ]
+                 (JsonRef "bar")
+            ))
+        in
+          Aeson.encode actual `shouldBe` Aeson.encode expected
+
+      it "Nested name conflict" $
+        let
+          expected :: (Definitions OA.Schema, OA.Schema)
+          expected =
+            ( mempty
+                & set (at "foo.1") (Just (stringSchema))
+                & set (at "foo") (Just (stringSchema))
+            , stringSchema
+            )
+
+          actual :: (Definitions OA.Schema, OA.Schema)
+          actual =
+            toOpenApiSchema (Proxy @(Rename (
+              JsonLet
+                '[ '("foo"
+                    , JsonLet
+                        '[ '( "foo"
+                            , JsonString
+                            )
+                         ]
+                         (JsonRef "foo")
+                    )
+                 ]
+                 (JsonRef "foo")
+            )))
+        in
+          Aeson.encode actual `shouldBe` Aeson.encode expected
+
+      it "Nested name conflict 2" $
+        let
+          expectedFooSchema :: OA.Schema
+          expectedFooSchema =
+            mempty
+              & set OA.type_ (Just OA.OpenApiObject)
+              & set
+                  OA.additionalProperties
+                  (Just (OA.AdditionalPropertiesAllowed False))
+              & set OA.properties (
+                  mempty
+                    & set (at "field1") (Just (
+                        OA.Ref (OA.Reference "foo.1")
+                      ))
+                    & set (at "field2") (Just (
+                        OA.Ref (OA.Reference "bar")
+                      ))
+                )
+
+          expected :: (Definitions OA.Schema, OA.Schema)
+          expected =
+            ( mempty
+                & set (at "bar") (Just stringSchema)
+                & set (at "foo.1") (Just stringSchema)
+                & set (at "foo") (Just expectedFooSchema)
+            , expectedFooSchema
+            )
+
+          actual :: (Definitions OA.Schema, OA.Schema)
+          actual =
+            toOpenApiSchema (Proxy @(Rename (
+              JsonLet
+                '[ '("foo"
+                    , JsonLet
+                        '[ '( "foo"
+                            , JsonString
+                            )
+                         ]
+                         (
+                           JsonObject
+                             '[ ("field1" ::? JsonRef "foo")
+                              , ("field2" ::? JsonRef "bar")
+                              ]
+                         )
+                    )
+                 , '( "bar"
+                    , JsonString
+                    )
+                 ]
+                 (JsonRef "foo")
+            )))
+        in
+          Aeson.encode actual `shouldBe` Aeson.encode expected
+
+      it "Nested name conflict 3" $
+        let
+          expected :: (Definitions OA.Schema, OA.Schema)
+          expected =
+            ( mempty
+                & set (at "foo.1") (Just stringSchema)
+                & set (at "foo.2") (Just (
+                    mempty & set OA.type_ (Just OA.OpenApiInteger)
+                  ))
+                & set (at "foo.3") (Just (
+                    mempty & set OA.type_ (Just OA.OpenApiBoolean)
+                  ))
+                & set (at "foo") (Just (
+                    mempty
+                      & set OA.type_ (Just OA.OpenApiObject)
+                      & set OA.properties (HMI.fromList
+                          [ ("field1", OA.Ref (OA.Reference "foo.1"))
+                          , ("field2", OA.Ref (OA.Reference "foo.2"))
+                          , ("field3", OA.Ref (OA.Reference "foo.3"))
+                          ]
+                        )
+                      & set OA.additionalProperties (Just (
+                          OA.AdditionalPropertiesAllowed False
+                        ))
+                      & set OA.required ["field1", "field2", "field3"]
+                  ))
+                & set (at "foo.4") (Just (
+                    mempty
+                      & set OA.oneOf (
+                          Just
+                            [ OA.Inline $
+                                mempty & set OA.type_ (Just OA.OpenApiNull)
+                            , OA.Inline $ stringSchema
+                            ]
+                        )
+                  ))
+            , mempty
+                & set OA.type_ (Just OA.OpenApiObject)
+                & set OA.properties (HMI.fromList
+                    [ ("field1", OA.Ref (OA.Reference "foo"))
+                    , ("field2", OA.Ref (OA.Reference "foo.4"))
+                    ]
+                  )
+                & set OA.required ["field1", "field2"]
+                & set OA.additionalProperties (Just (
+                    OA.AdditionalPropertiesAllowed False
+                  ))
+            )
+
+          actual :: (Definitions OA.Schema, OA.Schema)
+          actual =
+            toOpenApiSchema (Proxy @(Rename (
+              JsonLet
+                '[ '( "foo"
+                    , JsonLet
+                        '[ '("foo", JsonString) ]
+                         (
+                           JsonObject
+                            '[ "field1" ::: JsonRef "foo"
+                             , "field2" ::: JsonLet
+                                             '[ '("foo", JsonInt) ]
+                                              (JsonRef "foo")
+                             , "field3" ::: JsonLet
+                                             '[ '("foo", JsonBool) ]
+                                              (JsonRef "foo")
+                             ]
+
+                         )
+                    )
+                 ]
+                 (
+                   JsonObject
+                     '[ "field1" ::: JsonRef "foo"
+                      , "field2" ::: JsonLet
+                                      '[ '("foo", JsonNullable JsonString) ]
+                                       (JsonRef "foo")
+                      ]
+                 )
+            )))
+        in
+          Aeson.encode actual `shouldBe` Aeson.encode expected
 
     describe "EncodingSchema" $
       it "works" $

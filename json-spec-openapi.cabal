@@ -1,6 +1,6 @@
 cabal-version:       3.0
 name:                json-spec-openapi
-version:             0.3.1.2
+version:             1.0.0.0
 synopsis:            json-spec-openapi
 description:
   This package provides a way to produce
@@ -64,7 +64,7 @@ common dependencies
     , aeson                     >= 2.2.1.0  && < 2.3
     , base                      >= 4.19.0.0 && < 4.21
     , insert-ordered-containers >= 0.2.5.3  && < 0.3
-    , json-spec                 >= 0.5.0.0  && < 1.1
+    , json-spec                 >= 0.5.0.0  && < 1.2
     , lens                      >= 5.2.3    && < 5.4
     , openapi3                  >= 3.2.4    && < 3.3
     , text                      >= 2.1      && < 2.2
@@ -82,7 +82,8 @@ library
   import: dependencies, warnings
   exposed-modules:     
     Data.JsonSpec.OpenApi
-  -- other-modules:       
+  other-modules:       
+    Data.JsonSpec.OpenApi.Rename
   -- other-extensions:    
   hs-source-dirs:      src
   default-language:    Haskell2010
