@@ -342,13 +342,13 @@ instance Inlineable defs JsonRaw where
       & set type_ (Just OpenApiObject)
 instance {- Inlineable defs (JsonLet newDefs spec) -}
     ( Inlineable (Concat newDefs defs) spec
-    , Defs newDefs newDefs
+    , Defs (Concat newDefs defs) newDefs
     )
   =>
     Inlineable defs (JsonLet newDefs spec)
   where
     inlineable = do
-      mkDefs @newDefs @newDefs
+      mkDefs @(Concat newDefs defs) @newDefs
       inlineable @(Concat newDefs defs) @spec
 instance {- Inlineable defs (JsonRef target) -}
     ( Deref defs defs target
