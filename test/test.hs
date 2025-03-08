@@ -287,37 +287,67 @@ main =
         in
           actual `shouldBe` expected
 
-      it "let expression" $
-        let
-          actual :: (Definitions OA.Schema, OA.Schema)
-          actual =
-            toOpenApiSchema (Proxy @(
-              JsonLet '[
-                '("thing", JsonString)
-              ]
-              (
-                JsonObject '[
-                  Required "foo" (JsonRef "thing")
+      describe "let bindings" $ do
+        it "basic let expression" $
+          let
+            actual :: (Definitions OA.Schema, OA.Schema)
+            actual =
+              toOpenApiSchema (Proxy @(
+                JsonLet '[
+                  '("thing", JsonString)
                 ]
-              )
-            ))
+                (
+                  JsonObject '[
+                    Required "foo" (JsonRef "thing")
+                  ]
+                )
+              ))
 
-          expected :: (Definitions OA.Schema, OA.Schema)
-          expected =
-            ( HMI.singleton "thing" stringSchema
-            , mempty
-                & set OA.type_ (Just OA.OpenApiObject)
-                & set OA.properties (
-                    mempty
-                      & set (at "foo") (Just (OA.Ref (OA.Reference "thing")))
+            expected :: (Definitions OA.Schema, OA.Schema)
+            expected =
+              ( HMI.singleton "thing" stringSchema
+              , mempty
+                  & set OA.type_ (Just OA.OpenApiObject)
+                  & set OA.properties (
+                      mempty
+                        & set (at "foo") (Just (OA.Ref (OA.Reference "thing")))
+                    )
+                  & set OA.required ["foo"]
+                  & set
+                      OA.additionalProperties
+                      (Just (OA.AdditionalPropertiesAllowed False))
+              )
+          in
+            actual `shouldBe` expected
+
+        it "back reference" $
+          let
+            actual :: (Definitions OA.Schema, OA.Schema)
+            actual =
+              toOpenApiSchema (Proxy @(
+                JsonLet
+                 '[ '( "thing1"
+                     , JsonString
+                     )
+                  , '( "thing2"
+                     , JsonRef "thing1"
+                     )
+                  ]
+                  (
+                    JsonRef "thing2"
                   )
-                & set OA.required ["foo"]
-                & set
-                    OA.additionalProperties
-                    (Just (OA.AdditionalPropertiesAllowed False))
-            )
-        in
-          actual `shouldBe` expected
+              ))
+
+            expected :: (Definitions OA.Schema, OA.Schema)
+            expected =
+              ( HMI.fromList
+                  [ ("thing1", stringSchema)
+                  , ("thing2", stringSchema)
+                  ]
+              , stringSchema
+              )
+          in
+            actual `shouldBe` expected
 
       it "top level reference" $
         let
