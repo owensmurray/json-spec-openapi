@@ -5,5 +5,8 @@ package json-spec-openapi
     -Werror
 
 allow-newer:
-  openapi3:base,
-  openapi3:template-haskell
+  openapi3:hashable
+  , openapi3:base
+  , openapi3:template-haskell
+  , insert-ordered-containers:base
+  , insert-ordered-containers:hashable

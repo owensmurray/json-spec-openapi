@@ -1,6 +1,6 @@
 cabal-version:       3.0
 name:                json-spec-openapi
-version:             1.0.1.0
+version:             1.0.1.1
 synopsis:            json-spec-openapi
 description:
   This package provides a way to produce
@@ -52,7 +52,7 @@ license:             MIT
 license-file:        LICENSE
 author:              Rick Owens
 maintainer:          rick@owensmurray.com
-copyright:           2022 Rick Owens
+copyright:           2025 Owens Murray, LLC.
 category:            JSON, OpenApi
 build-type:          Simple
 extra-source-files:
@@ -62,7 +62,7 @@ extra-source-files:
 common dependencies
   build-depends:
     , aeson                     >= 2.2.1.0  && < 2.3
-    , base                      >= 4.19.0.0 && < 4.21
+    , base                      >= 4.19.0.0 && < 4.22
     , insert-ordered-containers >= 0.2.5.3  && < 0.3
     , json-spec                 >= 0.5.0.0  && < 1.2
     , lens                      >= 5.2.3    && < 5.4
