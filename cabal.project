@@ -3,8 +3,3 @@ packages:
 package json-spec-openapi
   ghc-options:
     -Werror
-
-allow-newer:
-  openapi3:hashable
-  , openapi3:base
-  , openapi3:template-haskell

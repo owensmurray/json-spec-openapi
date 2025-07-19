@@ -98,5 +98,5 @@ test-suite json-spec-openapi-tests
     , json-spec-openapi
 
     , hspec      >= 2.11.1 && < 2.12
-    , time       >= 1.12.2 && < 1.13
+    , time       >= 1.12.2 && < 1.15
 
