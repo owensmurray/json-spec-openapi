@@ -20,8 +20,9 @@ import Data.JsonSpec
   , HasJsonDecodingSpec(DecodingSpec, fromJSONStructure)
   , HasJsonEncodingSpec(EncodingSpec, toJSONStructure), SpecJSON(SpecJSON)
   , Specification
-    ( JsonArray, JsonBool, JsonDateTime, JsonEither, JsonInt, JsonLet
-    , JsonNullable, JsonNum, JsonObject, JsonRaw, JsonRef, JsonString, JsonTag
+    ( JsonAnnotated, JsonArray, JsonBool, JsonDateTime, JsonEither, JsonInt
+    , JsonLet, JsonNullable, JsonNum, JsonObject, JsonRaw, JsonRef, JsonString
+    , JsonTag
     )
   , (:::), (::?), unField
   )
@@ -31,8 +32,8 @@ import Data.Proxy (Proxy(Proxy))
 import Data.Text (Text)
 import Data.Time (UTCTime)
 import Prelude
-  ( Applicative(pure), Bool(False), Functor(fmap), Maybe(Just), Monoid(mempty)
-  , ($), (.), Eq, IO, Show
+  ( Applicative(pure), Bool(False), Eq, Functor(fmap), Int, IO, Maybe(Just)
+  , Monoid(mempty), Show, ($), (.)
   )
 import Test.Hspec (describe, hspec, it, shouldBe)
 import qualified Data.Aeson as Aeson
@@ -666,6 +667,31 @@ main =
         in
           Aeson.encode actual `shouldBe` Aeson.encode expected
 
+    describe "annotated" $ do
+      it "JsonAnnotated wrapping object (EncodingSpec AnnotatedUser)" $
+        let
+          actual :: (Definitions OA.Schema, OA.Schema)
+          actual = toOpenApiSchema (Proxy @(EncodingSpec AnnotatedUser))
+
+          expected :: (Definitions OA.Schema, OA.Schema)
+          expected =
+            ( mempty
+            , mempty
+                & set OA.type_ (Just OA.OpenApiObject)
+                & set OA.description (Just "A user with a name and age")
+                & set OA.properties (
+                    mempty
+                      & set (at "name") (Just (OA.Inline stringSchema))
+                      & set (at "age") (Just (OA.Inline intSchema))
+                  )
+                & set OA.required ["name", "age"]
+                & set
+                    OA.additionalProperties
+                    (Just (OA.AdditionalPropertiesAllowed False))
+            )
+        in
+          actual `shouldBe` expected
+
     describe "EncodingSchema" $
       it "works" $
         let
@@ -721,12 +747,47 @@ instance HasJsonDecodingSpec User where
       pure User { name , lastLogin }
 
 
+{- Annotated test: EncodingSpec uses JsonAnnotated. -}
+data AnnotatedUser = AnnotatedUser
+  { auName :: Text
+  ,  auAge :: Int
+  }
+  deriving stock (Show, Eq)
+  deriving (ToJSON, FromJSON) via (SpecJSON AnnotatedUser)
+instance HasJsonEncodingSpec AnnotatedUser where
+  type EncodingSpec AnnotatedUser =
+    JsonAnnotated
+      '[ '("description", "A user with a name and age")
+       , '("example", "{\"name\": \"alice\", \"age\": 30}")
+       ]
+      (JsonObject
+        '[ Required "name" JsonString
+         , Required "age" JsonInt
+         ])
+  toJSONStructure AnnotatedUser { auName, auAge } =
+    (Field @"name" auName,
+    (Field @"age" auAge,
+    ()))
+instance HasJsonDecodingSpec AnnotatedUser where
+  type DecodingSpec AnnotatedUser = EncodingSpec AnnotatedUser
+  fromJSONStructure
+      (Field @"name" auName,
+      (Field @"age" auAge,
+      ()))
+    =
+      pure AnnotatedUser { auName, auAge }
+
+
 stringSchema :: OA.Schema
 stringSchema = mempty & set OA.type_ (Just OA.OpenApiString)
 
 
 numSchema :: OA.Schema
 numSchema = mempty & set OA.type_ (Just OA.OpenApiNumber)
+
+
+intSchema :: OA.Schema
+intSchema = mempty & set OA.type_ (Just OA.OpenApiInteger)
 
 
 boolSchema :: OA.Schema

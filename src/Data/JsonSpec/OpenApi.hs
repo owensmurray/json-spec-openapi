@@ -108,15 +108,16 @@ import Data.JsonSpec
   ( FieldSpec(Optional, Required), HasJsonDecodingSpec(DecodingSpec)
   , HasJsonEncodingSpec(EncodingSpec)
   , Specification
-    ( JsonArray, JsonBool, JsonDateTime, JsonEither, JsonInt, JsonLet
-    , JsonNullable, JsonNum, JsonObject, JsonRaw, JsonRef, JsonString, JsonTag
+    ( JsonAnnotated, JsonArray, JsonBool, JsonDateTime, JsonEither, JsonInt
+    , JsonLet, JsonNullable, JsonNum, JsonObject, JsonRaw, JsonRef, JsonString
+    , JsonTag
     )
   )
 import Data.JsonSpec.OpenApi.Rename (Rename)
 import Data.OpenApi
   ( AdditionalProperties(AdditionalPropertiesAllowed)
-  , HasAdditionalProperties(additionalProperties), HasEnum(enum_)
-  , HasFormat(format), HasItems(items), HasOneOf(oneOf)
+  , HasAdditionalProperties(additionalProperties), HasDescription(description)
+  , HasEnum(enum_), HasFormat(format), HasItems(items), HasOneOf(oneOf)
   , HasProperties(properties), HasRequired(required), HasType(type_)
   , NamedSchema(NamedSchema), OpenApiItems(OpenApiItemsObject)
   , OpenApiType
@@ -134,7 +135,7 @@ import GHC.TypeError (ErrorMessage((:$$:), (:<>:)), Unsatisfiable, unsatisfiable
 import GHC.TypeLits (KnownSymbol, Symbol, symbolVal)
 import Prelude
   ( Applicative(pure), Bool(False), Functor(fmap), Maybe(Just, Nothing)
-  , Monoid(mempty), ($), (.)
+  , Monoid(mempty), ($), (.), id
   )
 import qualified Data.HashMap.Strict.InsOrd as HMI
 import qualified Data.OpenApi as OA
@@ -357,6 +358,16 @@ instance {- Inlineable defs (JsonRef target) -}
     Inlineable defs (JsonRef target)
   where
     inlineable = deref @defs @defs @target
+instance {- Inlineable defs (JsonAnnotated annotations spec) -}
+    ( Inlineable defs spec
+    , ApplyAnnotations annotations
+    )
+  =>
+    Inlineable defs (JsonAnnotated annotations spec)
+  where
+    inlineable = do
+      schema <- inlineable @defs @spec
+      pure (applyAnnotations @annotations schema)
 
 
 {-|
@@ -523,5 +534,46 @@ type family
   where
     Concat '[] b = b
     Concat (a : more) b = a : Concat more b
+
+
+{-|
+  Look up a key in a list of annotation pairs. Returns 'Just value if found,
+  'Nothing otherwise.
+-}
+type family
+    LookupAnnotation
+      (key :: Symbol)
+      (annotations :: [(Symbol, Symbol)])
+      :: Maybe Symbol
+  where
+    LookupAnnotation key '[] = 'Nothing
+    LookupAnnotation key ( '(key, value) ': more ) = 'Just value
+    LookupAnnotation key ( '(other, value) ': more ) = LookupAnnotation key more
+
+
+{-|
+  Apply annotations to a schema. Currently only "description" is supported;
+  all other annotations are ignored.
+-}
+class ApplyAnnotations (annotations :: [(Symbol, Symbol)]) where
+  applyAnnotations :: Schema -> Schema
+instance
+    (ApplyDescription (LookupAnnotation "description" annotations))
+  =>
+    ApplyAnnotations annotations
+  where
+    applyAnnotations = applyDescription @(LookupAnnotation "description" annotations)
+
+
+{-|
+  Helper class for applying a description annotation to a schema.
+-}
+class ApplyDescription (desc :: Maybe Symbol) where
+  applyDescription :: Schema -> Schema
+instance ApplyDescription 'Nothing where
+  applyDescription = id
+instance (KnownSymbol desc) => ApplyDescription ('Just desc) where
+  applyDescription schema =
+    schema & set description (Just (sym @desc))
 
 
