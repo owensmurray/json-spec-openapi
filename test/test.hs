@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -26,7 +27,9 @@ import Data.JsonSpec
     )
   , (:::), (::?), unField
   )
-import Data.JsonSpec.OpenApi (EncodingSchema, Rename, toOpenApiSchema)
+import Data.JsonSpec.OpenApi
+  ( EncodingSchema, Rename, SchemaModifier(modifySchema), toOpenApiSchema
+  )
 import Data.OpenApi (Definitions, ToSchema)
 import Data.Proxy (Proxy(Proxy))
 import Data.Text (Text)
@@ -692,6 +695,75 @@ main =
         in
           actual `shouldBe` expected
 
+      it "JsonAnnotated with empty list is no-op" $
+        let
+          actual :: (Definitions OA.Schema, OA.Schema)
+          actual = toOpenApiSchema (Proxy @(EncodingSpec EmptyAnnotatedUser))
+
+          expected :: (Definitions OA.Schema, OA.Schema)
+          expected =
+            ( mempty
+            , mempty
+                & set OA.type_ (Just OA.OpenApiObject)
+                & set OA.properties (
+                    mempty
+                      & set (at "name") (Just (OA.Inline stringSchema))
+                      & set (at "age") (Just (OA.Inline intSchema))
+                  )
+                & set OA.required ["name", "age"]
+                & set
+                    OA.additionalProperties
+                    (Just (OA.AdditionalPropertiesAllowed False))
+            )
+        in
+          actual `shouldBe` expected
+
+      it "JsonAnnotated with Symbol-valued \"schema-modifier\" is ignored (no-op)" $
+        let
+          actual :: (Definitions OA.Schema, OA.Schema)
+          actual = toOpenApiSchema (Proxy @(EncodingSpec SymbolSchemaModifierUser))
+
+          expected :: (Definitions OA.Schema, OA.Schema)
+          expected =
+            ( mempty
+            , mempty
+                & set OA.type_ (Just OA.OpenApiObject)
+                & set OA.properties (
+                    mempty
+                      & set (at "name") (Just (OA.Inline stringSchema))
+                      & set (at "age") (Just (OA.Inline intSchema))
+                  )
+                & set OA.required ["name", "age"]
+                & set
+                    OA.additionalProperties
+                    (Just (OA.AdditionalPropertiesAllowed False))
+            )
+        in
+          actual `shouldBe` expected
+
+      it "JsonAnnotated with Type-valued list but no \"schema-modifier\" key is no-op" $
+        let
+          actual :: (Definitions OA.Schema, OA.Schema)
+          actual = toOpenApiSchema (Proxy @(EncodingSpec OtherTypeAnnotationUser))
+
+          expected :: (Definitions OA.Schema, OA.Schema)
+          expected =
+            ( mempty
+            , mempty
+                & set OA.type_ (Just OA.OpenApiObject)
+                & set OA.properties (
+                    mempty
+                      & set (at "name") (Just (OA.Inline stringSchema))
+                      & set (at "age") (Just (OA.Inline intSchema))
+                  )
+                & set OA.required ["name", "age"]
+                & set
+                    OA.additionalProperties
+                    (Just (OA.AdditionalPropertiesAllowed False))
+            )
+        in
+          actual `shouldBe` expected
+
     describe "EncodingSchema" $
       it "works" $
         let
@@ -747,18 +819,20 @@ instance HasJsonDecodingSpec User where
       pure User { name , lastLogin }
 
 
-{- Annotated test: EncodingSpec uses JsonAnnotated. -}
+{- Annotated test: EncodingSpec uses JsonAnnotated and SchemaModifier. -}
 data AnnotatedUser = AnnotatedUser
   { auName :: Text
   ,  auAge :: Int
   }
   deriving stock (Show, Eq)
   deriving (ToJSON, FromJSON) via (SpecJSON AnnotatedUser)
+instance SchemaModifier AnnotatedUser where
+  modifySchema schema =
+    schema & set OA.description (Just "A user with a name and age")
 instance HasJsonEncodingSpec AnnotatedUser where
   type EncodingSpec AnnotatedUser =
     JsonAnnotated
-      '[ '("description", "A user with a name and age")
-       , '("example", "{\"name\": \"alice\", \"age\": 30}")
+      '[ '("schema-modifier", AnnotatedUser)
        ]
       (JsonObject
         '[ Required "name" JsonString
@@ -776,6 +850,96 @@ instance HasJsonDecodingSpec AnnotatedUser where
       ()))
     =
       pure AnnotatedUser { auName, auAge }
+
+
+{- Empty annotations: catch-all applies, no-op. -}
+data EmptyAnnotatedUser = EmptyAnnotatedUser
+  { eauName :: Text
+  ,  eauAge :: Int
+  }
+  deriving stock (Show, Eq)
+  deriving (ToJSON, FromJSON) via (SpecJSON EmptyAnnotatedUser)
+instance HasJsonEncodingSpec EmptyAnnotatedUser where
+  type EncodingSpec EmptyAnnotatedUser =
+    JsonAnnotated
+      '[]
+      (JsonObject
+        '[ Required "name" JsonString
+         , Required "age" JsonInt
+         ])
+  toJSONStructure EmptyAnnotatedUser { eauName, eauAge } =
+    (Field @"name" eauName,
+    (Field @"age" eauAge,
+    ()))
+instance HasJsonDecodingSpec EmptyAnnotatedUser where
+  type DecodingSpec EmptyAnnotatedUser = EncodingSpec EmptyAnnotatedUser
+  fromJSONStructure
+      (Field @"name" eauName,
+      (Field @"age" eauAge,
+      ()))
+    =
+      pure EmptyAnnotatedUser { eauName, eauAge }
+
+
+{- Symbol-valued "schema-modifier" key: kind is [(Symbol, Symbol)], no-op. -}
+data SymbolSchemaModifierUser = SymbolSchemaModifierUser
+  { ssmName :: Text
+  ,  ssmAge :: Int
+  }
+  deriving stock (Show, Eq)
+  deriving (ToJSON, FromJSON) via (SpecJSON SymbolSchemaModifierUser)
+instance HasJsonEncodingSpec SymbolSchemaModifierUser where
+  type EncodingSpec SymbolSchemaModifierUser =
+    JsonAnnotated
+      '[ '("schema-modifier", "ignored-symbol-value")
+       ]
+      (JsonObject
+        '[ Required "name" JsonString
+         , Required "age" JsonInt
+         ])
+  toJSONStructure SymbolSchemaModifierUser { ssmName, ssmAge } =
+    (Field @"name" ssmName,
+    (Field @"age" ssmAge,
+    ()))
+instance HasJsonDecodingSpec SymbolSchemaModifierUser where
+  type DecodingSpec SymbolSchemaModifierUser = EncodingSpec SymbolSchemaModifierUser
+  fromJSONStructure
+      (Field @"name" ssmName,
+      (Field @"age" ssmAge,
+      ()))
+    =
+      pure SymbolSchemaModifierUser { ssmName, ssmAge }
+
+
+{- Type-valued annotations but key is not "schema-modifier": no-op. -}
+data OtherAnnotation
+data OtherTypeAnnotationUser = OtherTypeAnnotationUser
+  { otaName :: Text
+  ,  otaAge :: Int
+  }
+  deriving stock (Show, Eq)
+  deriving (ToJSON, FromJSON) via (SpecJSON OtherTypeAnnotationUser)
+instance HasJsonEncodingSpec OtherTypeAnnotationUser where
+  type EncodingSpec OtherTypeAnnotationUser =
+    JsonAnnotated
+      '[ '("other-key", OtherAnnotation)
+       ]
+      (JsonObject
+        '[ Required "name" JsonString
+         , Required "age" JsonInt
+         ])
+  toJSONStructure OtherTypeAnnotationUser { otaName, otaAge } =
+    (Field @"name" otaName,
+    (Field @"age" otaAge,
+    ()))
+instance HasJsonDecodingSpec OtherTypeAnnotationUser where
+  type DecodingSpec OtherTypeAnnotationUser = EncodingSpec OtherTypeAnnotationUser
+  fromJSONStructure
+      (Field @"name" otaName,
+      (Field @"age" otaAge,
+      ()))
+    =
+      pure OtherTypeAnnotationUser { otaName, otaAge }
 
 
 stringSchema :: OA.Schema
