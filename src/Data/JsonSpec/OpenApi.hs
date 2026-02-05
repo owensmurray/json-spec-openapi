@@ -91,6 +91,36 @@
   >                   (Just (AdditionalPropertiesAllowed True))
   >           )
 
+  === Annotations and schema modification
+
+  You can wrap a specification in 'JsonAnnotated' to attach
+  type-level annotations. This library interprets one annotation:
+  @\"schema-modifier\"@ with a value of kind 'Type'. Use it to
+  customize the generated schema (e.g. set description, readOnly, or
+  other OpenAPI fields) by giving that type a 'SchemaModifier'
+  instance. While you may use any type that has an instance, using the
+  base type for which you are specifying an encoding may be the most
+  convenient.
+
+  Other annotation kinds (e.g. @[(Symbol, Symbol)]@ for description
+  strings) and other keys are no-op here so that other tools can
+  interpret them without causing compile errors.
+
+  Example (you may need @-XFlexibleInstances@ for the instance):
+
+  > data AnnotatedUser = AnnotatedUser { name_ :: Text, age_ :: Int }
+  >   deriving (ToJSON, FromJSON) via (SpecJSON AnnotatedUser)
+  > instance SchemaModifier AnnotatedUser where
+  >   modifySchema s = s & set description (Just \"A user with name and age\")
+  > instance HasJsonEncodingSpec AnnotatedUser where
+  >   type EncodingSpec AnnotatedUser =
+  >     JsonAnnotated '[ '(\"schema-modifier\", AnnotatedUser) ]
+  >       (JsonObject '[ Required \"name\" JsonString, Required \"age\" JsonInt ])
+  >   toJSONStructure (AnnotatedUser n a) = (Field @"name" n, (Field @"age" a, ()))
+
+  The type in @\"schema-modifier\"@ must have a 'SchemaModifier'
+  instance or you get a type error; it is not ignored.
+
 -}
 module Data.JsonSpec.OpenApi (
   toOpenApiSchema,
@@ -98,6 +128,7 @@ module Data.JsonSpec.OpenApi (
   EncodingSchema(..),
   DecodingSchema(..),
   Rename,
+  SchemaModifier(..),
 ) where
 
 
@@ -116,7 +147,7 @@ import Data.JsonSpec
 import Data.JsonSpec.OpenApi.Rename (Rename)
 import Data.OpenApi
   ( AdditionalProperties(AdditionalPropertiesAllowed)
-  , HasAdditionalProperties(additionalProperties), HasDescription(description)
+  , HasAdditionalProperties(additionalProperties)
   , HasEnum(enum_), HasFormat(format), HasItems(items), HasOneOf(oneOf)
   , HasProperties(properties), HasRequired(required), HasType(type_)
   , NamedSchema(NamedSchema), OpenApiItems(OpenApiItemsObject)
@@ -130,6 +161,7 @@ import Data.OpenApi
 import Data.OpenApi.Declare (DeclareT(runDeclareT), MonadDeclare(declare))
 import Data.String (IsString(fromString))
 import Data.Text (Text)
+import Data.Kind (Type)
 import Data.Typeable (Proxy(Proxy), Typeable)
 import GHC.TypeError (ErrorMessage((:$$:), (:<>:)), Unsatisfiable, unsatisfiable)
 import GHC.TypeLits (KnownSymbol, Symbol, symbolVal)
@@ -367,7 +399,7 @@ instance {- Inlineable defs (JsonAnnotated annotations spec) -}
   where
     inlineable = do
       schema <- inlineable @defs @spec
-      pure (applyAnnotations @annotations schema)
+      pure (applyAnnotations (Proxy @annotations) schema)
 
 
 {-|
@@ -538,13 +570,15 @@ type family
 
 {-|
   Look up a key in a list of annotation pairs. Returns 'Just value if found,
-  'Nothing otherwise.
+  'Nothing otherwise. The annotations list is poly-kinded in the value type
+  so that different tools can use different kinds (e.g. this library looks up
+  \"schema-modifier\" for a value of kind 'Type' to apply 'SchemaModifier').
 -}
 type family
     LookupAnnotation
       (key :: Symbol)
-      (annotations :: [(Symbol, Symbol)])
-      :: Maybe Symbol
+      (annotations :: [(Symbol, k)])
+      :: Maybe k
   where
     LookupAnnotation key '[] = 'Nothing
     LookupAnnotation key ( '(key, value) ': more ) = 'Just value
@@ -552,28 +586,54 @@ type family
 
 
 {-|
-  Apply annotations to a schema. Currently only "description" is supported;
-  all other annotations are ignored.
+  Apply annotations to a schema. We only interpret @[(Symbol, Type)]@
+  (for the \"schema-modifier\" hook); all other annotation kinds are
+  no-op here so that json-spec users can use other kinds (e.g. 'Symbol',
+  'Bool', 'Nat', or custom kinds) for other tools without causing
+  compile errors in this library.
 -}
-class ApplyAnnotations (annotations :: [(Symbol, Symbol)]) where
-  applyAnnotations :: Schema -> Schema
+class ApplyAnnotations (annotations :: [(Symbol, k)]) where
+  applyAnnotations :: Proxy annotations -> Schema -> Schema
+instance {-# OVERLAPPABLE #-} ApplyAnnotations (annotations :: [(Symbol, k)]) where
+  applyAnnotations _proxy = id
 instance
-    (ApplyDescription (LookupAnnotation "description" annotations))
+    (ApplySchemaModifier (LookupAnnotation "schema-modifier" annotations))
   =>
-    ApplyAnnotations annotations
+    ApplyAnnotations (annotations :: [(Symbol, Type)])
   where
-    applyAnnotations = applyDescription @(LookupAnnotation "description" annotations)
+    applyAnnotations _proxy = applySchemaModifier @(LookupAnnotation "schema-modifier" annotations)
 
 
 {-|
-  Helper class for applying a description annotation to a schema.
+  User-defined schema modifier. Use this to customize how a schema is
+  transformed when the \"schema-modifier\" annotation appears in a
+  'JsonAnnotated' list with a value of your type.
+
+  While you may use any type that has an instance, using the base type
+  for which you are specifying an encoding may be the most convenient. If you
+  use a type that has no 'SchemaModifier' instance, you get a type
+  error (it is not ignored).
+
+  Example (you may need @-XFlexibleInstances@ for the instance):
+
+  > type EncodingSpec AnnotatedUser =
+  >   JsonAnnotated '[ '(\"schema-modifier\", AnnotatedUser) ]
+  >     (JsonObject ...)
+  > instance SchemaModifier AnnotatedUser where
+  >   modifySchema schema = schema & set description (Just \"A user\")
 -}
-class ApplyDescription (desc :: Maybe Symbol) where
-  applyDescription :: Schema -> Schema
-instance ApplyDescription 'Nothing where
-  applyDescription = id
-instance (KnownSymbol desc) => ApplyDescription ('Just desc) where
-  applyDescription schema =
-    schema & set description (Just (sym @desc))
+class SchemaModifier (t :: Type) where
+  modifySchema :: Schema -> Schema
+
+
+{-|
+  Apply a schema modifier when present in the annotation lookup result.
+-}
+class ApplySchemaModifier (m :: Maybe Type) where
+  applySchemaModifier :: Schema -> Schema
+instance ApplySchemaModifier 'Nothing where
+  applySchemaModifier = id
+instance (SchemaModifier t) => ApplySchemaModifier ('Just t) where
+  applySchemaModifier = modifySchema @t
 
 
