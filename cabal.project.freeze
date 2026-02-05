@@ -143,4 +143,4 @@ constraints: any.Cabal ==3.14.1.0,
              vector +boundschecks -internalchecks -unsafechecks -wall,
              any.vector-stream ==0.1.0.1,
              any.witherable ==0.5
-index-state: hackage.haskell.org 2026-02-01T04:15:37Z
+index-state: hackage.haskell.org 2026-02-05T10:14:40Z
