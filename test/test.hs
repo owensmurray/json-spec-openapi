@@ -64,18 +64,15 @@ main =
           actual =
             toOpenApiSchema (Proxy @(
               JsonEither
-                (
-                  JsonObject
+                '[ JsonObject
                     '[ Required "tag" (JsonTag "a")
                      , Required "content" JsonString
                      ]
-                )
-                (
-                  JsonObject
+                , JsonObject
                     '[ Required "tag" (JsonTag "b")
                      , Required "content" JsonString
                      ]
-                )
+                ]
             ))
 
           expected :: (Definitions OA.Schema, OA.Schema)

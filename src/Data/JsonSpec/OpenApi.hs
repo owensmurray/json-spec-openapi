@@ -166,8 +166,8 @@ import Data.Typeable (Proxy(Proxy), Typeable)
 import GHC.TypeError (ErrorMessage((:$$:), (:<>:)), Unsatisfiable, unsatisfiable)
 import GHC.TypeLits (KnownSymbol, Symbol, symbolVal)
 import Prelude
-  ( Applicative(pure), Bool(False), Functor(fmap), Maybe(Just, Nothing)
-  , Monoid(mempty), ($), (.), id
+  ( Applicative(pure, (<*>)), Bool(False), Functor(fmap), Maybe(Just, Nothing)
+  , Monoid(mempty), ($), (.), (<$>), id
   )
 import qualified Data.HashMap.Strict.InsOrd as HMI
 import qualified Data.OpenApi as OA
@@ -278,23 +278,16 @@ instance Inlineable defs JsonString where
   inlineable =
     pure $
       mempty & set type_ (Just OpenApiString)
-instance {- Inlineable defs ('JsonEither left right) -}
-    ( Refable defs left
-    , Refable defs right
-    )
+instance {- Inlineable defs ('JsonEither specs) -}
+    (RefableList defs specs)
   =>
-    Inlineable defs ('JsonEither left right)
+    Inlineable defs (JsonEither specs)
   where
     inlineable = do
-      schemaLeft <- refable @defs @left
-      schemaRight <- refable @defs @right
+      schemaList <- refableList @defs @specs
       pure $
         mempty
-          & set oneOf (Just
-              [ schemaLeft
-              , schemaRight
-              ]
-          )
+          & set oneOf (Just schemaList)
 instance Inlineable defs JsonNum where
   inlineable =
     pure $
@@ -400,6 +393,31 @@ instance {- Inlineable defs (JsonAnnotated annotations spec) -}
     inlineable = do
       schema <- inlineable @defs @spec
       pure (applyAnnotations (Proxy @annotations) schema)
+
+
+{-|
+  Like 'Refable' but for a type-level list of specifications; produces
+  a list of schemas (used for 'JsonEither' oneOf).
+-}
+class
+    RefableList
+      (defs :: [(Symbol, Specification)])
+      (specs :: [Specification])
+  where
+    refableList
+      :: (MonadDeclare (Definitions Schema) m)
+      => m [Referenced Schema]
+instance RefableList defs '[] where
+  refableList = pure []
+instance
+    ( Refable defs spec
+    , RefableList defs more
+    )
+  =>
+    RefableList defs (spec ': more)
+  where
+    refableList =
+      (:) <$> refable @defs @spec <*> refableList @defs @more
 
 
 {-|
