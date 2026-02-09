@@ -73,6 +73,22 @@ type family
 
 
 type family
+    Snd
+      (a :: (Specification, Global))
+      :: Global
+  where
+    Snd '(spec, global) = global
+
+
+type family
+    GetEitherList
+      (spec :: Specification)
+      :: [Specification]
+  where
+    GetEitherList (JsonEither specs) = specs
+
+
+type family
     FoldRename
       (global :: Global)
       (active :: Active)
@@ -104,8 +120,8 @@ type family
     FoldRename global active (JsonObject fields) =
       RenameObject global active fields
 
-    FoldRename global active (JsonEither left right) =
-      RenameEither global active left right
+    FoldRename global active (JsonEither specs) =
+      RenameEitherList global active specs
 
     FoldRename global active (JsonLet defs spec) =
       RenameLet
@@ -208,39 +224,21 @@ type family
 
 
 type family
-    RenameEither
+    RenameEitherList
       (global :: Global)
       (active :: Active)
-      (  left :: Specification)
-      ( right :: Specification)
+      (specs :: [Specification])
       :: (Specification, Global)
   where
-    RenameEither global active left right =
-      RenameEither2
-        active
-        (FoldRename global active left)
-        right
-
-
-type family
-    RenameEither2
-      (active :: Active)
-      (  left :: (Specification, Global))
-      ( right :: Specification)
-      :: (Specification, Global)
-  where
-    RenameEither2 active '(left, global) right =
-      RenameEither3 left (FoldRename global active right)
-
-
-type family
-    RenameEither3
-      (left :: Specification)
-      (right :: (Specification, Global))
-      :: (Specification, Global)
-  where
-    RenameEither3 left '(right, global) =
-      '(JsonEither left right, global)
+    RenameEitherList global active '[spec] =
+      '(JsonEither '[Fst (FoldRename global active spec)], Snd (FoldRename global active spec))
+    RenameEitherList global active (spec ': more) =
+      '( JsonEither
+           (Fst (FoldRename global active spec)
+             ': GetEitherList
+                  (Fst (RenameEitherList (Snd (FoldRename global active spec)) active more)))
+       , Snd (RenameEitherList (Snd (FoldRename global active spec)) active more)
+       )
 
 
 type family
