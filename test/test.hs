@@ -40,7 +40,7 @@ import Prelude
   )
 import Test.Hspec (describe, hspec, it, shouldBe)
 import qualified Data.Aeson as Aeson
-import qualified Data.HashMap.Strict.InsOrd as HMI
+import qualified Data.HashMap.Strict.InsOrd.Compat as HMI
 import qualified Data.OpenApi as OA
 
 
