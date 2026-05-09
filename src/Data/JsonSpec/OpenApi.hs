@@ -169,7 +169,7 @@ import Prelude
   ( Applicative(pure, (<*>)), Bool(False), Functor(fmap), Maybe(Just, Nothing)
   , Monoid(mempty), ($), (.), (<$>), id
   )
-import qualified Data.HashMap.Strict.InsOrd as HMI
+import qualified Data.HashMap.Strict.InsOrd.Compat as HMI
 import qualified Data.OpenApi as OA
 import qualified GHC.TypeError as TE
 
