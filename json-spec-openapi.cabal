@@ -1,6 +1,6 @@
 cabal-version:       3.0
 name:                json-spec-openapi
-version:             1.2.0.3
+version:             1.2.0.4
 synopsis:            json-spec-openapi
 description:
   This package provides a way to produce
@@ -98,5 +98,5 @@ test-suite json-spec-openapi-tests
     , json-spec-openapi
 
     , hspec      >= 2.11.1 && < 2.12
-    , time       >= 1.12.2 && < 1.15
+    , time       >= 1.12.2 && < 1.16
 

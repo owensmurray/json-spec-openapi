@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.2.0.4
+
+- Relaxed the upper bound on `time` to allow `time-1.15`.
+
 ## 1.2.0.3
 
 - Updated the lower bound of `openapi3` so the package no longer
