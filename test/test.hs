@@ -21,28 +21,27 @@ import Data.JsonSpec
   , HasJsonDecodingSpec(DecodingSpec, fromJSONStructure)
   , HasJsonEncodingSpec(EncodingSpec, toJSONStructure), SpecJSON(SpecJSON)
   , Specification
-    ( JsonAnnotated, JsonArray, JsonBool, JsonDateTime, JsonEither, JsonInt
-    , JsonLet, JsonNullable, JsonNum, JsonObject, JsonRaw, JsonRef, JsonString
-    , JsonTag
+    ( JsonAnnotated, JsonArray, JsonBool, JsonDateTime, JsonDict, JsonEither
+    , JsonInt, JsonLet, JsonNullable, JsonNum, JsonObject, JsonRaw, JsonRef
+    , JsonString, JsonTag
     )
   , (:::), (::?), unField
   )
 import Data.JsonSpec.OpenApi
-  ( EncodingSchema, Rename, SchemaModifier(modifySchema), toOpenApiSchema
+  ( SchemaModifier(modifySchema), EncodingSchema, Rename, toOpenApiSchema
   )
 import Data.OpenApi (Definitions, ToSchema)
 import Data.Proxy (Proxy(Proxy))
 import Data.Text (Text)
 import Data.Time (UTCTime)
 import Prelude
-  ( Applicative(pure), Bool(False), Eq, Functor(fmap), Int, IO, Maybe(Just)
-  , Monoid(mempty), Show, ($), (.)
+  ( Applicative(pure), Bool(False), Functor(fmap), Maybe(Just), Monoid(mempty)
+  , ($), (.), Eq, IO, Int, Show
   )
 import Test.Hspec (describe, hspec, it, shouldBe)
 import qualified Data.Aeson as Aeson
 import qualified Data.HashMap.Strict.InsOrd.Compat as HMI
 import qualified Data.OpenApi as OA
-
 
 main :: IO ()
 main =
@@ -210,6 +209,26 @@ main =
                     ))
             )
 
+        in
+          actual `shouldBe` expected
+
+      it "dict" $
+        let
+          actual :: (Definitions OA.Schema, OA.Schema)
+          actual =
+            toOpenApiSchema (Proxy @(JsonDict JsonInt))
+
+          expected :: (Definitions OA.Schema, OA.Schema)
+          expected =
+            ( mempty
+            , mempty
+                & set OA.type_ (Just OA.OpenApiObject)
+                & set
+                    OA.additionalProperties
+                    (Just (
+                      OA.AdditionalPropertiesSchema (OA.Inline intSchema)
+                    ))
+            )
         in
           actual `shouldBe` expected
 
