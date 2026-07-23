@@ -11,14 +11,13 @@ module Data.JsonSpec.OpenApi.Rename (
 import Data.JsonSpec
   ( FieldSpec(Optional, Required)
   , Specification
-    ( JsonArray, JsonBool, JsonDateTime, JsonEither, JsonInt, JsonLet
+    ( JsonArray, JsonBool, JsonDateTime, JsonDict, JsonEither, JsonInt, JsonLet
     , JsonNullable, JsonNum, JsonObject, JsonRaw, JsonRef, JsonString, JsonTag
     )
   )
 import GHC.TypeError (ErrorMessage((:$$:)))
 import GHC.TypeLits (type (+), AppendSymbol, Nat, Symbol)
 import qualified GHC.TypeError as TE
-
 
 {-|
   Resolve OpenApi name conflicts.
@@ -116,6 +115,9 @@ type family
 
     FoldRename global active (JsonArray spec) =
       MapSpec JsonArray (FoldRename global active spec)
+
+    FoldRename global active (JsonDict spec) =
+      MapSpec JsonDict (FoldRename global active spec)
 
     FoldRename global active (JsonObject fields) =
       RenameObject global active fields

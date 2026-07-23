@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.3.0.0
+
+- Support `JsonDict` from `json-spec` 1.4, generating OpenAPI object schemas
+  with typed `additionalProperties`.
+
 ## 1.2.0.4
 
 - Relaxed the upper bound on `time` to allow `time-1.15`.

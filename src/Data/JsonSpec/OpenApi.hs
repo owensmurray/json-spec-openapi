@@ -131,7 +131,6 @@ module Data.JsonSpec.OpenApi (
   SchemaModifier(..),
 ) where
 
-
 import Control.Lens (At(at), (&), over, set)
 import Data.Aeson (ToJSON(toJSON))
 import Data.Functor.Identity (Identity(runIdentity))
@@ -139,16 +138,17 @@ import Data.JsonSpec
   ( FieldSpec(Optional, Required), HasJsonDecodingSpec(DecodingSpec)
   , HasJsonEncodingSpec(EncodingSpec)
   , Specification
-    ( JsonAnnotated, JsonArray, JsonBool, JsonDateTime, JsonEither, JsonInt
-    , JsonLet, JsonNullable, JsonNum, JsonObject, JsonRaw, JsonRef, JsonString
-    , JsonTag
+    ( JsonAnnotated, JsonArray, JsonBool, JsonDateTime, JsonDict, JsonEither
+    , JsonInt, JsonLet, JsonNullable, JsonNum, JsonObject, JsonRaw, JsonRef
+    , JsonString, JsonTag
     )
   )
 import Data.JsonSpec.OpenApi.Rename (Rename)
+import Data.Kind (Type)
 import Data.OpenApi
-  ( AdditionalProperties(AdditionalPropertiesAllowed)
-  , HasAdditionalProperties(additionalProperties)
-  , HasEnum(enum_), HasFormat(format), HasItems(items), HasOneOf(oneOf)
+  ( AdditionalProperties(AdditionalPropertiesAllowed, AdditionalPropertiesSchema)
+  , HasAdditionalProperties(additionalProperties), HasEnum(enum_)
+  , HasFormat(format), HasItems(items), HasOneOf(oneOf)
   , HasProperties(properties), HasRequired(required), HasType(type_)
   , NamedSchema(NamedSchema), OpenApiItems(OpenApiItemsObject)
   , OpenApiType
@@ -161,18 +161,16 @@ import Data.OpenApi
 import Data.OpenApi.Declare (DeclareT(runDeclareT), MonadDeclare(declare))
 import Data.String (IsString(fromString))
 import Data.Text (Text)
-import Data.Kind (Type)
 import Data.Typeable (Proxy(Proxy), Typeable)
 import GHC.TypeError (ErrorMessage((:$$:), (:<>:)), Unsatisfiable, unsatisfiable)
 import GHC.TypeLits (KnownSymbol, Symbol, symbolVal)
 import Prelude
-  ( Applicative(pure, (<*>)), Bool(False), Functor(fmap), Maybe(Just, Nothing)
+  ( Applicative((<*>), pure), Bool(False), Functor(fmap), Maybe(Just, Nothing)
   , Monoid(mempty), ($), (.), (<$>), id
   )
 import qualified Data.HashMap.Strict.InsOrd.Compat as HMI
 import qualified Data.OpenApi as OA
 import qualified GHC.TypeError as TE
-
 
 {-|
   Convert a 'Specification' into an OpenApi 'Schema'. The type class
@@ -341,6 +339,19 @@ instance {- Inlineable defs (JsonArray spec) -}
         mempty
           & set type_ (Just OpenApiArray)
           & set items (Just (OpenApiItemsObject elementSchema))
+instance {- Inlineable defs (JsonDict spec) -}
+    (Refable defs spec)
+  =>
+    Inlineable defs (JsonDict spec)
+  where
+    inlineable = do
+      valueSchema <- refable @defs @spec
+      pure $
+        mempty
+          & set type_ (Just OpenApiObject)
+          & set
+              additionalProperties
+              (Just (AdditionalPropertiesSchema valueSchema))
 instance Inlineable defs JsonBool where
   inlineable =
     pure $
