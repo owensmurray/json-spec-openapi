@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.3.0.1
+
+- Support `aeson` 2.3.
+
 ## 1.3.0.0
 
 - Support `JsonDict` from `json-spec` 1.4, generating OpenAPI object schemas
