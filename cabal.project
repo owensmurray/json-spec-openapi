@@ -4,4 +4,8 @@ package json-spec-openapi
   ghc-options:
     -Werror
 
-allow-newer: base, template-haskell
+allow-newer:
+  *:aeson
+
+constraints:
+  aeson >= 2.3 
