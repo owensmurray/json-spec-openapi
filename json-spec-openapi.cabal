@@ -19,14 +19,11 @@ description:
   >   deriving ToSchema via (EncodingSchema User) -- <-- ToSchema instance defined here
   > instance HasJsonEncodingSpec User where
   >   type EncodingSpec User =
-  >     JsonObject
-  >       '[ Required "name" JsonString
-  >        , Optional "last-login" JsonDateTime
-  >        ]
-  >   toJSONStructure user =
-  >     (Field @"name" (name user),
-  >     (fmap (Field @"last-login") (lastLogin user),
-  >     ()))
+  >     'Module
+  >       (JsonObject
+  >         '[ Required "name" JsonString
+  >          , Optional "last-login" JsonDateTime
+  >          ])
 
   Calling `Data.Aeson.encode (Data.OpenApi3.toSchema (Proxy :: Proxy User))`
   will produce the following Schema:
@@ -64,7 +61,7 @@ common dependencies
   build-depends:
     , aeson                     >= 2.2.1.0  && < 2.4
     , base                      >= 4.19.2.0 && < 4.23
-    , json-spec                 >= 1.4.0.0  && < 1.5
+    , json-spec                 >= 2.0.0.0  && < 2.1
     , lens                      >= 5.2.3    && < 5.4
     , openapi3                  >= 3.2.5    && < 3.3
     , text                      >= 2.1      && < 2.2

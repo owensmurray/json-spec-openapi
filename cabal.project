@@ -5,7 +5,8 @@ package json-spec-openapi
     -Werror
 
 allow-newer:
-  *:aeson
-
-constraints:
-  aeson >= 2.3 
+  , openapi3:aeson
+  , insert-ordered-containers:aeson
+-- 
+-- constraints:
+--   aeson >= 2.3 
