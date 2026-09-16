@@ -17,15 +17,18 @@ module Main (main) where
 import Control.Lens (At(at), (&), set)
 import Data.Aeson (ToJSON(toJSON), FromJSON)
 import Data.JsonSpec
-  ( Field(Field), FieldSpec(Optional, Required)
-  , HasJsonDecodingSpec(DecodingSpec, fromJSONStructure)
-  , HasJsonEncodingSpec(EncodingSpec, toJSONStructure), SpecJSON(SpecJSON)
+  ( FieldSpec(Optional, Required), HasJsonDecodingSpec(DecodingSpec)
+  , HasJsonEncodingSpec(EncodingSpec), Module(Module)
   , Specification
     ( JsonAnnotated, JsonArray, JsonBool, JsonDateTime, JsonDict, JsonEither
-    , JsonInt, JsonLet, JsonNullable, JsonNum, JsonObject, JsonRaw, JsonRef
-    , JsonString, JsonTag
+    , JsonInt, JsonLet, JsonModule, JsonNullable, JsonNum, JsonObject, JsonRaw
+    , JsonRef, JsonString, JsonTag
     )
-  , (:::), (::?), unField
+  , type (:::), type (::=), type (::?), type (:=)
+  )
+import Data.JsonSpec.Codec.Tuple
+  ( Field(Field), SpecJson(SpecJson), TupleDecoding(fromJsonStructure)
+  , TupleEncoding(toJsonStructure), unField
   )
 import Data.JsonSpec.OpenApi
   ( SchemaModifier(modifySchema), EncodingSchema, Rename, toOpenApiSchema
@@ -314,7 +317,7 @@ main =
             actual =
               toOpenApiSchema (Proxy @(
                 JsonLet '[
-                  '("thing", JsonString)
+                  "thing" := JsonString
                 ]
                 (
                   JsonObject '[
@@ -346,12 +349,8 @@ main =
             actual =
               toOpenApiSchema (Proxy @(
                 JsonLet
-                 '[ '( "thing1"
-                     , JsonString
-                     )
-                  , '( "thing2"
-                     , JsonRef "thing1"
-                     )
+                 '[ "thing1" := JsonString
+                  , "thing2" := JsonRef "thing1"
                   ]
                   (
                     JsonRef "thing2"
@@ -375,8 +374,8 @@ main =
           actual =
             toOpenApiSchema (Proxy @(
               JsonLet '[
-                '("foo", JsonNum),
-                '("bar", JsonString)
+                "foo" := JsonNum,
+                "bar" := JsonString
               ]
               (JsonRef "bar")
             ))
@@ -397,7 +396,7 @@ main =
               JsonObject '[
                 Required "foo" (
                   JsonLet
-                    '[ '("thing", JsonString)]
+                    '[ "thing" := JsonString ]
                     (JsonRef "thing")
                 )
               ]
@@ -504,18 +503,14 @@ main =
           actual =
             toOpenApiSchema (Proxy @(
               JsonLet
-                '[ '( "foo"
-                    , JsonObject
+                '[ "foo" := JsonObject
                         '[ "recfoo" ::: JsonArray (JsonRef "bar")
                          , "valfoo" ::: JsonInt
                          ]
-                    )
-                 , '( "bar"
-                    , JsonObject
+                 , "bar" := JsonObject
                         '[ "recbar" ::: JsonArray (JsonRef "foo")
                          , "valbar" ::: JsonString
                          ]
-                    )
                  ]
                  (JsonRef "bar")
             ))
@@ -536,14 +531,10 @@ main =
           actual =
             toOpenApiSchema (Proxy @(Rename (
               JsonLet
-                '[ '("foo"
-                    , JsonLet
-                        '[ '( "foo"
-                            , JsonString
-                            )
+                '[ "foo" := JsonLet
+                        '[ "foo" := JsonString
                          ]
                          (JsonRef "foo")
-                    )
                  ]
                  (JsonRef "foo")
             )))
@@ -582,11 +573,8 @@ main =
           actual =
             toOpenApiSchema (Proxy @(Rename (
               JsonLet
-                '[ '("foo"
-                    , JsonLet
-                        '[ '( "foo"
-                            , JsonString
-                            )
+                '[ "foo" := JsonLet
+                        '[ "foo" := JsonString
                          ]
                          (
                            JsonObject
@@ -594,10 +582,7 @@ main =
                               , ("field2" ::? JsonRef "bar")
                               ]
                          )
-                    )
-                 , '( "bar"
-                    , JsonString
-                    )
+                 , "bar" := JsonString
                  ]
                  (JsonRef "foo")
             )))
@@ -657,28 +642,26 @@ main =
           actual =
             toOpenApiSchema (Proxy @(Rename (
               JsonLet
-                '[ '( "foo"
-                    , JsonLet
-                        '[ '("foo", JsonString) ]
+                '[ "foo" := JsonLet
+                        '[ "foo" := JsonString ]
                          (
                            JsonObject
                             '[ "field1" ::: JsonRef "foo"
                              , "field2" ::: JsonLet
-                                             '[ '("foo", JsonInt) ]
+                                             '[ "foo" := JsonInt ]
                                               (JsonRef "foo")
                              , "field3" ::: JsonLet
-                                             '[ '("foo", JsonBool) ]
+                                             '[ "foo" := JsonBool ]
                                               (JsonRef "foo")
                              ]
 
                          )
-                    )
                  ]
                  (
                    JsonObject
                      '[ "field1" ::: JsonRef "foo"
                       , "field2" ::: JsonLet
-                                      '[ '("foo", JsonNullable JsonString) ]
+                                      '[ "foo" := JsonNullable JsonString ]
                                        (JsonRef "foo")
                       ]
                  )
@@ -686,11 +669,66 @@ main =
         in
           Aeson.encode actual `shouldBe` Aeson.encode expected
 
+      it "closed module binding" $
+        let
+          taxSchema :: OA.Schema
+          taxSchema =
+            mempty
+              & set OA.type_ (Just OA.OpenApiObject)
+              & set OA.properties (
+                  mempty
+                    & set (at "rate") (Just (OA.Ref (OA.Reference "Rate")))
+                )
+              & set OA.required ["rate"]
+              & set
+                  OA.additionalProperties
+                  (Just (OA.AdditionalPropertiesAllowed False))
+
+          expected :: (Definitions OA.Schema, OA.Schema)
+          expected =
+            ( HMI.fromList
+                [ ("Id", stringSchema)
+                , ("Rate", numSchema)
+                , ("Tax", taxSchema)
+                ]
+            , mempty
+                & set OA.type_ (Just OA.OpenApiObject)
+                & set OA.properties (
+                    mempty
+                      & set (at "id") (Just (OA.Ref (OA.Reference "Id")))
+                      & set (at "tax") (Just (OA.Ref (OA.Reference "Tax")))
+                  )
+                & set OA.required ["id", "tax"]
+                & set
+                    OA.additionalProperties
+                    (Just (OA.AdditionalPropertiesAllowed False))
+            )
+
+          actual :: (Definitions OA.Schema, OA.Schema)
+          actual =
+            toOpenApiSchema (Proxy @(
+              JsonLet
+                '[ "Id" := JsonString
+                 , "Tax" ::=
+                     'Module
+                       (JsonLet
+                         '[ "Rate" := JsonNum ]
+                         (JsonObject '[ "rate" ::: JsonRef "Rate" ]))
+                 ]
+                (JsonObject
+                  '[ "id" ::: JsonRef "Id"
+                   , "tax" ::: JsonRef "Tax"
+                   ])
+            ))
+        in
+          Aeson.encode actual `shouldBe` Aeson.encode expected
+
     describe "annotated" $ do
       it "JsonAnnotated wrapping object (EncodingSpec AnnotatedUser)" $
         let
           actual :: (Definitions OA.Schema, OA.Schema)
-          actual = toOpenApiSchema (Proxy @(EncodingSpec AnnotatedUser))
+          actual = toOpenApiSchema (Proxy @(JsonModule (EncodingSpec AnnotatedUser)))
+
 
           expected :: (Definitions OA.Schema, OA.Schema)
           expected =
@@ -714,7 +752,8 @@ main =
       it "JsonAnnotated with empty list is no-op" $
         let
           actual :: (Definitions OA.Schema, OA.Schema)
-          actual = toOpenApiSchema (Proxy @(EncodingSpec EmptyAnnotatedUser))
+          actual = toOpenApiSchema (Proxy @(JsonModule (EncodingSpec EmptyAnnotatedUser)))
+
 
           expected :: (Definitions OA.Schema, OA.Schema)
           expected =
@@ -737,7 +776,8 @@ main =
       it "JsonAnnotated with Symbol-valued \"schema-modifier\" is ignored (no-op)" $
         let
           actual :: (Definitions OA.Schema, OA.Schema)
-          actual = toOpenApiSchema (Proxy @(EncodingSpec SymbolSchemaModifierUser))
+          actual = toOpenApiSchema (Proxy @(JsonModule (EncodingSpec SymbolSchemaModifierUser)))
+
 
           expected :: (Definitions OA.Schema, OA.Schema)
           expected =
@@ -760,7 +800,8 @@ main =
       it "JsonAnnotated with Type-valued list but no \"schema-modifier\" key is no-op" $
         let
           actual :: (Definitions OA.Schema, OA.Schema)
-          actual = toOpenApiSchema (Proxy @(EncodingSpec OtherTypeAnnotationUser))
+          actual = toOpenApiSchema (Proxy @(JsonModule (EncodingSpec OtherTypeAnnotationUser)))
+
 
           expected :: (Definitions OA.Schema, OA.Schema)
           expected =
@@ -814,20 +855,23 @@ data User = User
   }
   deriving stock (Show, Eq)
   deriving ToSchema via (EncodingSchema User) -- <-- ToSchema instance defined here
-  deriving (ToJSON, FromJSON) via (SpecJSON User)
+  deriving (ToJSON, FromJSON) via (SpecJson User)
 instance HasJsonEncodingSpec User where
   type EncodingSpec User =
-    JsonObject
-      '[ Required "name" JsonString
-       , Optional "last-login" JsonDateTime
-       ]
-  toJSONStructure user =
+    'Module
+      (JsonObject
+        '[ Required "name" JsonString
+         , Optional "last-login" JsonDateTime
+         ])
+instance TupleEncoding User where
+  toJsonStructure user =
     (Field @"name" (name user),
     (fmap (Field @"last-login") (lastLogin user),
     ()))
 instance HasJsonDecodingSpec User where
   type DecodingSpec User = EncodingSpec User
-  fromJSONStructure
+instance TupleDecoding User where
+  fromJsonStructure
       (Field @"name" name,
       (fmap (unField @"last-login") ->  lastLogin,
       ()))
@@ -841,26 +885,29 @@ data AnnotatedUser = AnnotatedUser
   ,  auAge :: Int
   }
   deriving stock (Show, Eq)
-  deriving (ToJSON, FromJSON) via (SpecJSON AnnotatedUser)
+  deriving (ToJSON, FromJSON) via (SpecJson AnnotatedUser)
 instance SchemaModifier AnnotatedUser where
   modifySchema schema =
     schema & set OA.description (Just "A user with a name and age")
 instance HasJsonEncodingSpec AnnotatedUser where
   type EncodingSpec AnnotatedUser =
-    JsonAnnotated
-      '[ '("schema-modifier", AnnotatedUser)
-       ]
-      (JsonObject
-        '[ Required "name" JsonString
-         , Required "age" JsonInt
-         ])
-  toJSONStructure AnnotatedUser { auName, auAge } =
+    'Module
+      (JsonAnnotated
+        '[ '("schema-modifier", AnnotatedUser)
+         ]
+        (JsonObject
+          '[ Required "name" JsonString
+           , Required "age" JsonInt
+           ]))
+instance TupleEncoding AnnotatedUser where
+  toJsonStructure AnnotatedUser { auName, auAge } =
     (Field @"name" auName,
     (Field @"age" auAge,
     ()))
 instance HasJsonDecodingSpec AnnotatedUser where
   type DecodingSpec AnnotatedUser = EncodingSpec AnnotatedUser
-  fromJSONStructure
+instance TupleDecoding AnnotatedUser where
+  fromJsonStructure
       (Field @"name" auName,
       (Field @"age" auAge,
       ()))
@@ -874,22 +921,25 @@ data EmptyAnnotatedUser = EmptyAnnotatedUser
   ,  eauAge :: Int
   }
   deriving stock (Show, Eq)
-  deriving (ToJSON, FromJSON) via (SpecJSON EmptyAnnotatedUser)
+  deriving (ToJSON, FromJSON) via (SpecJson EmptyAnnotatedUser)
 instance HasJsonEncodingSpec EmptyAnnotatedUser where
   type EncodingSpec EmptyAnnotatedUser =
-    JsonAnnotated
-      '[]
-      (JsonObject
-        '[ Required "name" JsonString
-         , Required "age" JsonInt
-         ])
-  toJSONStructure EmptyAnnotatedUser { eauName, eauAge } =
+    'Module
+      (JsonAnnotated
+        '[]
+        (JsonObject
+          '[ Required "name" JsonString
+           , Required "age" JsonInt
+           ]))
+instance TupleEncoding EmptyAnnotatedUser where
+  toJsonStructure EmptyAnnotatedUser { eauName, eauAge } =
     (Field @"name" eauName,
     (Field @"age" eauAge,
     ()))
 instance HasJsonDecodingSpec EmptyAnnotatedUser where
   type DecodingSpec EmptyAnnotatedUser = EncodingSpec EmptyAnnotatedUser
-  fromJSONStructure
+instance TupleDecoding EmptyAnnotatedUser where
+  fromJsonStructure
       (Field @"name" eauName,
       (Field @"age" eauAge,
       ()))
@@ -903,23 +953,26 @@ data SymbolSchemaModifierUser = SymbolSchemaModifierUser
   ,  ssmAge :: Int
   }
   deriving stock (Show, Eq)
-  deriving (ToJSON, FromJSON) via (SpecJSON SymbolSchemaModifierUser)
+  deriving (ToJSON, FromJSON) via (SpecJson SymbolSchemaModifierUser)
 instance HasJsonEncodingSpec SymbolSchemaModifierUser where
   type EncodingSpec SymbolSchemaModifierUser =
-    JsonAnnotated
-      '[ '("schema-modifier", "ignored-symbol-value")
-       ]
-      (JsonObject
-        '[ Required "name" JsonString
-         , Required "age" JsonInt
-         ])
-  toJSONStructure SymbolSchemaModifierUser { ssmName, ssmAge } =
+    'Module
+      (JsonAnnotated
+        '[ '("schema-modifier", "ignored-symbol-value")
+         ]
+        (JsonObject
+          '[ Required "name" JsonString
+           , Required "age" JsonInt
+           ]))
+instance TupleEncoding SymbolSchemaModifierUser where
+  toJsonStructure SymbolSchemaModifierUser { ssmName, ssmAge } =
     (Field @"name" ssmName,
     (Field @"age" ssmAge,
     ()))
 instance HasJsonDecodingSpec SymbolSchemaModifierUser where
   type DecodingSpec SymbolSchemaModifierUser = EncodingSpec SymbolSchemaModifierUser
-  fromJSONStructure
+instance TupleDecoding SymbolSchemaModifierUser where
+  fromJsonStructure
       (Field @"name" ssmName,
       (Field @"age" ssmAge,
       ()))
@@ -934,23 +987,26 @@ data OtherTypeAnnotationUser = OtherTypeAnnotationUser
   ,  otaAge :: Int
   }
   deriving stock (Show, Eq)
-  deriving (ToJSON, FromJSON) via (SpecJSON OtherTypeAnnotationUser)
+  deriving (ToJSON, FromJSON) via (SpecJson OtherTypeAnnotationUser)
 instance HasJsonEncodingSpec OtherTypeAnnotationUser where
   type EncodingSpec OtherTypeAnnotationUser =
-    JsonAnnotated
-      '[ '("other-key", OtherAnnotation)
-       ]
-      (JsonObject
-        '[ Required "name" JsonString
-         , Required "age" JsonInt
-         ])
-  toJSONStructure OtherTypeAnnotationUser { otaName, otaAge } =
+    'Module
+      (JsonAnnotated
+        '[ '("other-key", OtherAnnotation)
+         ]
+        (JsonObject
+          '[ Required "name" JsonString
+           , Required "age" JsonInt
+           ]))
+instance TupleEncoding OtherTypeAnnotationUser where
+  toJsonStructure OtherTypeAnnotationUser { otaName, otaAge } =
     (Field @"name" otaName,
     (Field @"age" otaAge,
     ()))
 instance HasJsonDecodingSpec OtherTypeAnnotationUser where
   type DecodingSpec OtherTypeAnnotationUser = EncodingSpec OtherTypeAnnotationUser
-  fromJSONStructure
+instance TupleDecoding OtherTypeAnnotationUser where
+  fromJsonStructure
       (Field @"name" otaName,
       (Field @"age" otaAge,
       ()))

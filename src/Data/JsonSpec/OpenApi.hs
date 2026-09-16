@@ -32,14 +32,11 @@
   >   deriving ToSchema via (EncodingSchema User) -- <-- ToSchema instance defined here
   > instance HasJsonEncodingSpec User where
   >   type EncodingSpec User =
-  >     JsonObject
-  >       '[ Required "name" JsonString
-  >        , Optional "last-login" JsonDateTime
-  >        ]
-  >   toJSONStructure user =
-  >     (Field @"name" (name user),
-  >     (fmap (Field @"last-login") (lastLogin user),
-  >     ()))
+  >     'Module
+  >       (JsonObject
+  >         '[ Required "name" JsonString
+  >          , Optional "last-login" JsonDateTime
+  >          ])
 
   Calling @'Data.Aeson.encode' ('Data.OpenApi3.toSchema' ('Proxy' :: 'Proxy' User))@
   will produce the following Schema:
@@ -71,21 +68,18 @@
   >   }
   > instance HasJsonEncodingSpec User where
   >   type EncodingSpec User =
-  >     JsonObject
-  >       '[ Required "name" JsonString
-  >        , Optional "last-login" JsonDateTime
-  >        ]
-  >   toJSONStructure user =
-  >     (Field @"name" (name user),
-  >     (fmap (Field @"last-login") (lastLogin user),
-  >     ()))
+  >     'Module
+  >       (JsonObject
+  >         '[ Required "name" JsonString
+  >          , Optional "last-login" JsonDateTime
+  >          ])
   > instance ToSchema User where
   >   declareNamedSchema _proxy =
   >       pure $
   >         NamedSchema
   >           Nothing
   >           (
-  >             toOpenApiSchema (EncodingSpec User)
+  >             toOpenApiSchema (Proxy @(EncodingSpec User))
   >               & set
   >                   additionalProperties
   >                   (Just (AdditionalPropertiesAllowed True))
@@ -109,14 +103,14 @@
   Example (you may need @-XFlexibleInstances@ for the instance):
 
   > data AnnotatedUser = AnnotatedUser { name_ :: Text, age_ :: Int }
-  >   deriving (ToJSON, FromJSON) via (SpecJSON AnnotatedUser)
+  >   deriving (ToJSON, FromJSON) via (SpecJson AnnotatedUser)
   > instance SchemaModifier AnnotatedUser where
   >   modifySchema s = s & set description (Just \"A user with name and age\")
   > instance HasJsonEncodingSpec AnnotatedUser where
   >   type EncodingSpec AnnotatedUser =
-  >     JsonAnnotated '[ '(\"schema-modifier\", AnnotatedUser) ]
-  >       (JsonObject '[ Required \"name\" JsonString, Required \"age\" JsonInt ])
-  >   toJSONStructure (AnnotatedUser n a) = (Field @"name" n, (Field @"age" a, ()))
+  >     'Module
+  >       (JsonAnnotated '[ '(\"schema-modifier\", AnnotatedUser) ]
+  >         (JsonObject '[ Required \"name\" JsonString, Required \"age\" JsonInt ]))
 
   The type in @\"schema-modifier\"@ must have a 'SchemaModifier'
   instance or you get a type error; it is not ignored.
@@ -135,12 +129,13 @@ import Control.Lens (At(at), (&), over, set)
 import Data.Aeson (ToJSON(toJSON))
 import Data.Functor.Identity (Identity(runIdentity))
 import Data.JsonSpec
-  ( FieldSpec(Optional, Required), HasJsonDecodingSpec(DecodingSpec)
-  , HasJsonEncodingSpec(EncodingSpec)
+  ( BindingSpec(ModuleBind, TypeBind), FieldSpec(Optional, Required)
+  , HasJsonDecodingSpec(DecodingSpec), HasJsonEncodingSpec(EncodingSpec)
+  , Module(Module)
   , Specification
     ( JsonAnnotated, JsonArray, JsonBool, JsonDateTime, JsonDict, JsonEither
-    , JsonInt, JsonLet, JsonNullable, JsonNum, JsonObject, JsonRaw, JsonRef
-    , JsonString, JsonTag
+    , JsonInt, JsonLet, JsonModule, JsonNullable, JsonNum, JsonObject, JsonRaw
+    , JsonRef, JsonString, JsonTag
     )
   )
 import Data.JsonSpec.OpenApi.Rename (Rename)
@@ -173,9 +168,9 @@ import qualified Data.OpenApi as OA
 import qualified GHC.TypeError as TE
 
 {-|
-  Convert a 'Specification' into an OpenApi 'Schema'. The type class
-  'Schemaable' is an internal and opaque implementation detail and not
-  something you should have to worry about.
+  Convert a 'Specification' or closed 'Module' into an OpenApi 'Schema'.
+  The type class 'Schemaable' is an internal and opaque implementation
+  detail and not something you should have to worry about.
 
   It should already have an instance for every 'Specification' that can
   be turned into a 'Schema'. If it does not, then that is a bug. Please
@@ -187,7 +182,7 @@ import qualified GHC.TypeError as TE
     of the form:
 
       > JsonLet '[
-      >   '("foo", ...)
+      >   "foo" := ...
       > ] (
       >   JsonRef "foo"
       > )
@@ -199,7 +194,7 @@ import qualified GHC.TypeError as TE
 
       > toOpenApiSchema (Proxy @(
       >     JsonLet
-      >       '[ '("foo", JsonString) ]
+      >       '[ "foo" := JsonString ]
       >       (JsonRef "foo")
       >   ))
 
@@ -207,7 +202,7 @@ import qualified GHC.TypeError as TE
 
       > toOpenApiSchema (Proxy @(
       >     JsonLet
-      >       '[ '("foo", JsonString) ]
+      >       '[ "foo" := JsonString ]
       >       JsonString
       >   ))
 
@@ -223,7 +218,7 @@ import qualified GHC.TypeError as TE
       >     toOpenApiSchema
       >       (Proxy @(
       >         JsonObject '[
-      >           ("bar", JsonRef "not-defined")
+      >           Required "bar" (JsonRef "not-defined")
       >         ]
       >       ))
       > in
@@ -259,6 +254,7 @@ class Schemaable (spec :: Specification) where
 
 instance (Inlineable '[] spec) => Schemaable spec where
   schemaable = inlineable @'[] @spec
+
 
 class
     Inlineable
@@ -378,15 +374,17 @@ instance Inlineable defs JsonRaw where
       mempty
       & set type_ (Just OpenApiObject)
 instance {- Inlineable defs (JsonLet newDefs spec) -}
-    ( Inlineable (Concat newDefs defs) spec
-    , Defs (Concat newDefs defs) newDefs
+    ( Inlineable (Concat (BindingsToFrame newDefs) defs) spec
+    , Defs (Concat (BindingsToFrame newDefs) defs) newDefs
     )
   =>
     Inlineable defs (JsonLet newDefs spec)
   where
     inlineable = do
-      mkDefs @(Concat newDefs defs) @newDefs
-      inlineable @(Concat newDefs defs) @spec
+      mkDefs @(Concat (BindingsToFrame newDefs) defs) @newDefs
+      inlineable @(Concat (BindingsToFrame newDefs) defs) @spec
+instance (Inlineable '[] spec) => Inlineable defs (JsonModule ('Module spec)) where
+  inlineable = inlineable @'[] @spec
 instance {- Inlineable defs (JsonRef target) -}
     ( Deref defs defs target
     )
@@ -446,15 +444,15 @@ class
 instance {-# overlappable #-} (Inlineable defs a) => Refable defs a where
   refable = fmap Inline (inlineable @defs @a)
 instance
-    ( Defs newDefs newDefs
-    , Refable (Concat newDefs defs) spec
+    ( Defs (BindingsToFrame newDefs) newDefs
+    , Refable (Concat (BindingsToFrame newDefs) defs) spec
     )
   =>
     Refable defs (JsonLet newDefs spec)
   where
     refable = do
-      mkDefs @newDefs @newDefs
-      refable @(Concat newDefs defs) @spec
+      mkDefs @(BindingsToFrame newDefs) @newDefs
+      refable @(Concat (BindingsToFrame newDefs) defs) @spec
 instance (KnownSymbol name) => Refable defs (JsonRef name) where
   refable =
     pure (ref (sym @name))
@@ -500,23 +498,35 @@ type NotDereferenceable defs target =
 class
     Defs
       (allDefs :: [(Symbol, Specification)])
-      (defs :: [(Symbol, Specification)])
+      (defs :: [BindingSpec])
   where
     mkDefs
       :: (MonadDeclare (Definitions Schema) m)
       => m ()
 instance Defs defs '[] where
   mkDefs = pure ()
-instance {- Defs defs ( '(name, spec) ': more) -}
+instance {- Defs defs (TypeBind name spec ': more) -}
     ( Defs defs more
     , Inlineable defs spec
     , KnownSymbol name
     )
   =>
-    Defs defs ( '(name, spec) ': more)
+    Defs defs (TypeBind name spec ': more)
   where
     mkDefs = do
       schema <- inlineable @defs @spec
+      declare (HMI.singleton (sym @name) schema)
+      mkDefs @defs @more
+instance {- Defs defs (ModuleBind name ('Module spec) ': more) -}
+    ( Defs defs more
+    , Inlineable '[] spec
+    , KnownSymbol name
+    )
+  =>
+    Defs defs (ModuleBind name ('Module spec) ': more)
+  where
+    mkDefs = do
+      schema <- inlineable @'[] @spec
       declare (HMI.singleton (sym @name) schema)
       mkDefs @defs @more
 
@@ -535,14 +545,16 @@ instance {- Defs defs ( '(name, spec) ': more) -}
 newtype EncodingSchema a =
   EncodingSchema {unEncodingSchema :: a}
 instance
-    ( Schemaable (EncodingSpec a)
+    ( Schemaable (JsonModule (EncodingSpec a))
     , Typeable a
     )
   =>
     ToSchema (EncodingSchema a)
   where
     declareNamedSchema _ = do
-      let (declarations, schema) = toOpenApiSchema (Proxy @(EncodingSpec a))
+      let
+        (declarations, schema) =
+          toOpenApiSchema (Proxy @(JsonModule (EncodingSpec a)))
       declare declarations
       pure (NamedSchema Nothing schema)
 
@@ -561,14 +573,16 @@ instance
 newtype DecodingSchema a =
   DecodingSchema {unDecodingSchema :: a}
 instance
-    ( Schemaable (DecodingSpec a)
+    ( Schemaable (JsonModule (DecodingSpec a))
     , Typeable a
     )
   =>
     ToSchema (DecodingSchema a)
   where
     declareNamedSchema _ = do
-      let (declarations, schema) = toOpenApiSchema (Proxy @(DecodingSpec a))
+      let
+        (declarations, schema) =
+          toOpenApiSchema (Proxy @(JsonModule (DecodingSpec a)))
       declare declarations
       pure (NamedSchema Nothing schema)
 
@@ -585,6 +599,15 @@ sym = fromString $ symbolVal (Proxy @a)
 
 ref :: Text -> Referenced a
 ref = OA.Ref . Reference
+
+
+{-| Lower 'BindingSpec's to the env-frame representation. -}
+type family BindingsToFrame (bs :: [BindingSpec]) :: [(Symbol, Specification)] where
+  BindingsToFrame '[] = '[]
+  BindingsToFrame (TypeBind n s : more) =
+    '(n, s) : BindingsToFrame more
+  BindingsToFrame (ModuleBind n s : more) =
+    '(n, JsonModule s) : BindingsToFrame more
 
 
 type family
@@ -646,8 +669,9 @@ instance
   Example (you may need @-XFlexibleInstances@ for the instance):
 
   > type EncodingSpec AnnotatedUser =
-  >   JsonAnnotated '[ '(\"schema-modifier\", AnnotatedUser) ]
-  >     (JsonObject ...)
+  >   'Module
+  >     (JsonAnnotated '[ '(\"schema-modifier\", AnnotatedUser) ]
+  >       (JsonObject ...))
   > instance SchemaModifier AnnotatedUser where
   >   modifySchema schema = schema & set description (Just \"A user\")
 -}

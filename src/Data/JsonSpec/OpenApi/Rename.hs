@@ -9,14 +9,16 @@ module Data.JsonSpec.OpenApi.Rename (
 ) where
 
 import Data.JsonSpec
-  ( FieldSpec(Optional, Required)
+  ( BindingSpec(ModuleBind, TypeBind), FieldSpec(Optional, Required)
+  , Module(Module)
   , Specification
     ( JsonArray, JsonBool, JsonDateTime, JsonDict, JsonEither, JsonInt, JsonLet
-    , JsonNullable, JsonNum, JsonObject, JsonRaw, JsonRef, JsonString, JsonTag
+    , JsonModule, JsonNullable, JsonNum, JsonObject, JsonRaw, JsonRef
+    , JsonString, JsonTag
     )
   )
 import GHC.TypeError (ErrorMessage((:$$:)))
-import GHC.TypeLits (type (+), AppendSymbol, Nat, Symbol)
+import GHC.TypeLits (AppendSymbol, Nat, Symbol, type (+))
 import qualified GHC.TypeError as TE
 
 {-|
@@ -46,17 +48,20 @@ import qualified GHC.TypeError as TE
 
   For instance, this 'Specification' will fail to rename properly:
   > JsonLet
-  >   '[ '("foo", JsonString)
-  >    , '("foo.1", JsonString)
+  >   '[ "foo" := JsonString
+  >    , "foo.1" := JsonString
   >    ]
   >    ( JsonObject
   >        '[ "field1" ::: JsonRef "foo"
-  >         , "field2" ::: JsonLet '[ '("foo", JsonInt)] (JsonRef "foo")
+  >         , "field2" ::: JsonLet '[ "foo" := JsonInt] (JsonRef "foo")
   >         ]
   >    )
 
   because the "foo" in "field2" will be renamed to "foo.1", causing a
   new conflict with the existing "foo.1".
+
+  Closed 'ModuleBind' / 'JsonModule' bodies are renamed with a fresh
+  active environment, matching their closed scoping rules.
 -}
 type family Rename (spec :: Specification) :: Specification where
   Rename spec =
@@ -131,6 +136,9 @@ type family
         active
         defs
         spec
+
+    FoldRename global active (JsonModule ('Module spec)) =
+      MapJsonModule (FoldRename global (A '[]) spec)
 
     FoldRename global (A active) (JsonRef name) =
       '(JsonRef (LookupNewName name active), global)
@@ -246,11 +254,15 @@ type family
 type family
     UpdateGlobals
       (global :: Global)
-      (  defs :: [(Symbol, Specification)])
+      (  defs :: [BindingSpec])
       :: Global
   where
     UpdateGlobals global '[] = global
-    UpdateGlobals (G global) ( '(name, spec) : more) =
+    UpdateGlobals (G global) (TypeBind name _spec : more) =
+      UpdateGlobals
+        (G (IncrementName global name))
+        more
+    UpdateGlobals (G global) (ModuleBind name _m : more) =
       UpdateGlobals
         (G (IncrementName global name))
         more
@@ -273,7 +285,7 @@ type family
     RenameLet
       (global :: Global) -- updated
       (active :: Active)
-      (defs :: [(Symbol, Specification)])
+      (defs :: [BindingSpec])
       (spec :: Specification)
       :: (Specification, Global)
   where
@@ -289,7 +301,7 @@ type family
     RenameLet2
       (global :: Global) -- updated
       (active :: Active) -- updated
-      (defs :: [(Symbol, Specification)])
+      (defs :: [BindingSpec])
       (spec :: Specification)
   where
     RenameLet2 global active defs spec =
@@ -304,7 +316,7 @@ type family
     RenameLet3
       (global :: Global)
       (active :: Active)
-      (  defs :: [(Symbol, Specification)])
+      (  defs :: [BindingSpec])
       (  spec :: Specification)
       :: (Specification, Global)
   where
@@ -317,7 +329,7 @@ type family
 
 type family
     RenameLet4
-      (     r :: (Global, [(Symbol, Specification)]))
+      (     r :: (Global, [BindingSpec]))
       (active :: Active)
       (  spec :: Specification)
       :: (Specification, Global)
@@ -331,7 +343,7 @@ type family
 type family
     RenameLet5
       (r :: (Specification, Global))
-      (defs :: [(Symbol, Specification)])
+      (defs :: [BindingSpec])
       :: (Specification, Global)
   where
     RenameLet5 '(spec, global) defs =
@@ -342,11 +354,16 @@ type family
     UpdateActives
       (global :: Global) -- already updated
       (active :: Active)
-      (  defs :: [(Symbol, Specification)])
+      (  defs :: [BindingSpec])
       :: Active
   where
     UpdateActives global active '[] = active
-    UpdateActives global (A active) ( '(name, spec) : more) =
+    UpdateActives global (A active) (TypeBind name _spec : more) =
+      UpdateActives
+        global
+        (A (SetActive global active name))
+        more
+    UpdateActives global (A active) (ModuleBind name _m : more) =
       UpdateActives
         global
         (A (SetActive global active name))
@@ -390,8 +407,8 @@ type family
     ReflectDefs
       (global :: Global)
       (active :: Active)
-      (  defs :: [(Symbol, Specification)])
-      :: (Global, [(Symbol, Specification)])
+      (  defs :: [BindingSpec])
+      :: (Global, [BindingSpec])
   where
     ReflectDefs global active defs =
       FoldReflectDefs '(global, '[]) active defs
@@ -399,19 +416,30 @@ type family
 
 type family
     FoldReflectDefs
-      (acc :: (Global, [(Symbol, Specification)]))
+      (acc :: (Global, [BindingSpec]))
       (active :: Active)
-      (defs :: [(Symbol, Specification)])
-      :: (Global, [(Symbol, Specification)])
+      (defs :: [BindingSpec])
+      :: (Global, [BindingSpec])
   where
     FoldReflectDefs acc active '[] = acc
     FoldReflectDefs
         '(global, acc)
         active
-        ( '(name, spec) : more )
+        (TypeBind name spec : more)
       =
-        FoldReflectDefs2
+        FoldReflectTypeBind
           (FoldRename global active spec)
+          active
+          name
+          acc
+          more
+    FoldReflectDefs
+        '(global, acc)
+        active
+        (ModuleBind name ('Module spec) : more)
+      =
+        FoldReflectModuleBind
+          (FoldRename global (A '[]) spec)
           active
           name
           acc
@@ -419,28 +447,48 @@ type family
 
 
 type family
-    FoldReflectDefs2
+    FoldReflectTypeBind
       (  spec :: (Specification, Global))
       (active :: Active)
       (  name :: Symbol)
-      (   acc :: [(Symbol, Specification)])
-      (  more :: [(Symbol, Specification)])
-      :: (Global, [(Symbol, Specification)])
+      (   acc :: [BindingSpec])
+      (  more :: [BindingSpec])
+      :: (Global, [BindingSpec])
   where
-    FoldReflectDefs2 '(spec, global) active name acc more =
-      FoldReflectDefs '(global, '(name, spec) : acc) active more
+    FoldReflectTypeBind '(spec, global) active name acc more =
+      FoldReflectDefs '(global, TypeBind name spec : acc) active more
+
+
+type family
+    FoldReflectModuleBind
+      (  spec :: (Specification, Global))
+      (active :: Active)
+      (  name :: Symbol)
+      (   acc :: [BindingSpec])
+      (  more :: [BindingSpec])
+      :: (Global, [BindingSpec])
+  where
+    FoldReflectModuleBind '(spec, global) active name acc more =
+      FoldReflectDefs
+        '(global, ModuleBind name ('Module spec) : acc)
+        active
+        more
 
 
 {-| Update the LHS of the definitions, to match the already updated globals -}
 type family
     RenameDefs
       (global :: Global)
-      (  defs :: [(Symbol, Specification)])
-      :: [(Symbol, Specification)]
+      (  defs :: [BindingSpec])
+      :: [BindingSpec]
   where
     RenameDefs globals '[] = '[]
-    RenameDefs (G globals) ( '(name, spec) : more) =
-      '(LookupNewName name globals, spec) : RenameDefs (G globals) more
+    RenameDefs (G globals) (TypeBind name spec : more) =
+      TypeBind (LookupNewName name globals) spec
+        : RenameDefs (G globals) more
+    RenameDefs (G globals) (ModuleBind name m : more) =
+      ModuleBind (LookupNewName name globals) m
+        : RenameDefs (G globals) more
 
 
 type family
@@ -585,6 +633,15 @@ type family
       :: (Specification, Global)
   where
     MapSpec f '(a, b) = '(f a, b)
+
+
+type family
+    MapJsonModule
+      (a :: (Specification, Global))
+      :: (Specification, Global)
+  where
+    MapJsonModule '(spec, global) =
+      '(JsonModule ('Module spec), global)
 
 
 type family
