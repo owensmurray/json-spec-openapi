@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2.0.0.0
+
+- Bumped the epoch major version to align with `json-spec` 2.0.0.0.
+- Adapted to `json-spec` 2.0.0.0, including support for modules, module
+  bindings (`::=`), type bindings (`:=`), and closed scoping during
+  schema generation and symbol renaming.
+
 ## 1.3.0.1
 
 - Support `aeson` 2.3.
